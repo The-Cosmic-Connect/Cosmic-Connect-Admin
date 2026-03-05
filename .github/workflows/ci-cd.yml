@@ -1,0 +1,63 @@
+name: Admin CI/CD
+
+on:
+  push:
+    branches: [main, staging, dev]
+  pull_request:
+    branches: [main, staging, dev]
+
+jobs:
+  lint:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx tsc --noEmit
+
+  deploy:
+    name: Deploy → ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install -g vercel@latest
+
+      - name: Set environment
+        run: |
+          if [ "${{ github.ref_name }}" == "main" ]; then
+            echo "API_URL=${{ secrets.NEXT_PUBLIC_API_URL_PROD }}" >> $GITHUB_ENV
+            echo "PROD_FLAG=--prod" >> $GITHUB_ENV
+          else
+            echo "API_URL=${{ secrets.NEXT_PUBLIC_API_URL_DEV }}" >> $GITHUB_ENV
+            echo "PROD_FLAG=" >> $GITHUB_ENV
+          fi
+
+      - name: Deploy to Vercel
+        run: |
+          vercel pull --yes --token=${{ secrets.VERCEL_TOKEN }}
+          vercel build ${{ env.PROD_FLAG }} --token=${{ secrets.VERCEL_TOKEN }}
+          vercel deploy --prebuilt ${{ env.PROD_FLAG }} --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_ADMIN }}
+          NEXT_PUBLIC_API_URL: ${{ env.API_URL }}
+
+  notify:
+    name: Slack Notify
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always() && github.event_name == 'push'
+    steps:
+      - uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {"text": "${{ needs.deploy.result == 'success' && '✅' || '❌' }} *Admin `${{ github.ref_name }}`* — ${{ github.actor }}: ${{ github.event.head_commit.message }}"}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
