@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import Shell from '@/components/Shell'
 import { Plus, Pencil, Trash2, X, Upload, Image as ImageIcon } from 'lucide-react'
+import { fetchAllProducts, getCachedProducts, invalidateProductsCache } from '@/lib/fetchProducts'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -27,23 +28,10 @@ function toSlug(s: string): string {
 }
 
 /**
- * Walk the paginated /products endpoint. The backend caps a single page at 500;
- * fetching everything means following nextKey until it's null.
+ * Walk the paginated /products endpoint with caching.
+ * Implementation lives in lib/fetchProducts.ts so other admin pages can share
+ * the same cache (and call invalidateProductsCache() to bust it on edits).
  */
-async function fetchAllProducts(): Promise<any[]> {
-  let all: any[] = []
-  let lastKey: any = null
-  do {
-    const qs = new URLSearchParams({ published_only: 'false', limit: '500' })
-    if (lastKey) qs.set('last_key', JSON.stringify(lastKey))
-    const r = await fetch(`${API}/products?${qs.toString()}`)
-    if (!r.ok) break
-    const d = await r.json()
-    all = all.concat(d.products || [])
-    lastKey = d.nextKey || null
-  } while (lastKey)
-  return all
-}
 
 /**
  * Resize an image to max 1600px on the long edge and re-encode as JPEG with
@@ -255,8 +243,10 @@ const P0 = {
 }
 
 function Products() {
-  const [list, setList] = useState<any[]>([])
-  const [busy, setBusy] = useState(true)
+  // Hydrate from cache synchronously so switching admin tabs feels instant
+  // — no loading flash unless the cache is genuinely cold.
+  const [list, setList] = useState<any[]>(() => getCachedProducts() || [])
+  const [busy, setBusy] = useState<boolean>(() => !getCachedProducts())
   const [modal, setModal] = useState(false)
   const [form, setForm] = useState<any>(P0)
   const [eid, setEid]   = useState<string | null>(null)
@@ -264,15 +254,25 @@ function Products() {
   const [sav, setSav]   = useState(false)
   const [filter, setFilter] = useState('')
 
-  const load = useCallback(() => {
+  const load = useCallback((opts: { force?: boolean } = {}) => {
+    // Only show busy state on cold/forced loads; warm-cache reads complete
+    // synchronously and don't need a spinner.
+    const cached = getCachedProducts()
+    if (!opts.force && cached) {
+      setList(cached); setBusy(false); return
+    }
     setBusy(true)
-    fetchAllProducts()
+    fetchAllProducts(opts)
       .then((items) => setList(items))
       .catch(() => {})
       .finally(() => setBusy(false))
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    // First mount: if we hydrated from cache there's nothing to do; otherwise
+    // kick off the initial fetch.
+    if (!getCachedProducts()) load()
+  }, [load])
 
   function openNew() {
     setForm(P0); setEid(null); setErr(''); setModal(true)
@@ -336,7 +336,8 @@ function Products() {
         const text = await r.text()
         throw new Error(text || `Request failed (${r.status})`)
       }
-      setModal(false); load()
+      invalidateProductsCache()
+      setModal(false); load({ force: true })
     } catch (e: any) {
       setErr(e.message || 'Failed')
     } finally { setSav(false) }
@@ -344,7 +345,9 @@ function Products() {
 
   async function del(id: string) {
     if (!confirm('Delete product?')) return
-    await fetch(`${API}/products/${id}`, { method: 'DELETE' }); load()
+    await fetch(`${API}/products/${id}`, { method: 'DELETE' })
+    invalidateProductsCache()
+    load({ force: true })
   }
 
   const f = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }))
