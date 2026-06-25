@@ -1,15 +1,16 @@
 // lib/fetchProducts.ts (admin)
 //
-// Same shape as the frontend's helper: memory + localStorage cache, plus a
-// synchronous getter so the Products page hydrates state at mount with zero
-// loading flash. After any product write the caller should call
-// invalidateProductsCache() so the next read is fresh.
+// Same stale-while-revalidate + incremental-sync model as the frontend.
+// Notable difference: the admin's local writes invalidate the cache directly,
+// so it doesn't usually wait for the background sync — it goes through a
+// `force: true` refetch after each save / delete.
 
-const API     = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-const TTL_MS  = 30 * 60 * 1000
-const STORAGE = 'cc-admin-products-cache-v2'
+const API        = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const FRESH_MS   = 5  * 60 * 1000
+const STALE_MS   = 24 * 60 * 60 * 1000
+const STORAGE    = 'cc-admin-products-cache-v4'
 
-interface Cached { ts: number; data: any[] }
+interface Cached { ts: number; syncedAt: string; data: any[] }
 
 let memCache: Cached | null = null
 let inflight: Promise<any[]> | null = null
@@ -20,8 +21,7 @@ function readStorage(): Cached | null {
     const raw = window.localStorage.getItem(STORAGE)
     if (!raw) return null
     const parsed: Cached = JSON.parse(raw)
-    if (!parsed?.ts || !Array.isArray(parsed.data)) return null
-    if (Date.now() - parsed.ts > TTL_MS) return null
+    if (!parsed?.ts || !parsed.syncedAt || !Array.isArray(parsed.data)) return null
     return parsed
   } catch { return null }
 }
@@ -31,48 +31,95 @@ function writeStorage(c: Cached): void {
   try { window.localStorage.setItem(STORAGE, JSON.stringify(c)) } catch {}
 }
 
-async function fetchFromApi(): Promise<any[]> {
-  let all: any[] = []
-  let lastKey: any = null
+function ageOfCache(): number {
+  if (memCache) return Date.now() - memCache.ts
+  const fromStorage = readStorage()
+  if (fromStorage) { memCache = fromStorage; return Date.now() - fromStorage.ts }
+  return Infinity
+}
+
+async function doFullFetch(): Promise<Cached> {
+  let all: any[]      = []
+  let lastKey: any    = null
+  let serverTime      = new Date().toISOString()
+
   do {
     const qs = new URLSearchParams({ published_only: 'false', limit: '500' })
     if (lastKey) qs.set('last_key', JSON.stringify(lastKey))
-    const r = await fetch(`${API}/products?${qs.toString()}`)
+    const r = await fetch(`${API}/products?${qs}`)
     if (!r.ok) break
     const d = await r.json()
-    all = all.concat(d.products || [])
+    all     = all.concat(d.products || [])
     lastKey = d.nextKey || null
+    if (d.serverTime) serverTime = d.serverTime
   } while (lastKey)
-  return all
+
+  const fresh: Cached = { ts: Date.now(), syncedAt: serverTime, data: all }
+  memCache = fresh
+  writeStorage(fresh)
+  return fresh
 }
 
-/**
- * Synchronous cache check. Returns cached products immediately if fresh,
- * otherwise null. Use in `useState(() => …)` initializers so the page
- * renders with data on first paint — no loading flash on tab switch.
- */
+async function doDeltaSync(prev: Cached): Promise<Cached> {
+  const changes: any[] = []
+  let lastKey: any     = null
+  let serverTime       = prev.syncedAt
+  let fullSync         = false
+
+  do {
+    const params = new URLSearchParams({ since: prev.syncedAt, limit: '1000' })
+    if (lastKey) params.set('last_key', JSON.stringify(lastKey))
+    const r = await fetch(`${API}/products/changes-since?${params}`)
+    if (!r.ok) { fullSync = true; break }
+    const d = await r.json()
+    if (d.fullSync) { fullSync = true; break }
+    if (Array.isArray(d.items)) changes.push(...d.items)
+    lastKey    = d.nextKey   || null
+    serverTime = d.serverTime || serverTime
+  } while (lastKey)
+
+  if (fullSync) return doFullFetch()
+
+  // Admin view INCLUDES soft-deleted items (so admin can see what was removed).
+  // We still drop deleted ids from cache here — if you want the admin to see
+  // tombstones, change this to upsert all items including deleted=true ones.
+  const byId = new Map(prev.data.map((p) => [p.id, p]))
+  for (const item of changes) {
+    if (item?.deleted === true) {
+      if (item.id) byId.delete(item.id)
+    } else if (item?.id) {
+      byId.set(item.id, item)
+    }
+  }
+  const merged = Array.from(byId.values())
+  const fresh: Cached = { ts: Date.now(), syncedAt: serverTime, data: merged }
+  memCache = fresh
+  writeStorage(fresh)
+  return fresh
+}
+
+function refreshInBackground(): void {
+  if (inflight || !memCache) return
+  inflight = doDeltaSync(memCache).then((c) => c.data).finally(() => { inflight = null })
+}
+
 export function getCachedProducts(): any[] | null {
-  if (memCache && Date.now() - memCache.ts < TTL_MS) return memCache.data
-  const fromStorage = readStorage()
-  if (fromStorage) { memCache = fromStorage; return fromStorage.data }
+  const age = ageOfCache()
+  if (age < STALE_MS && memCache) return memCache.data
   return null
 }
 
 export async function fetchAllProducts(opts: { force?: boolean } = {}): Promise<any[]> {
-  if (!opts.force) {
-    const cached = getCachedProducts()
-    if (cached) return cached
+  if (opts.force) {
+    if (inflight) return inflight
+    inflight = doFullFetch().then((c) => c.data).finally(() => { inflight = null })
+    return inflight
   }
+  const age = ageOfCache()
+  if (age < FRESH_MS && memCache) return memCache.data
+  if (age < STALE_MS && memCache) { refreshInBackground(); return memCache.data }
   if (inflight) return inflight
-  inflight = (async () => {
-    try {
-      const data = await fetchFromApi()
-      const fresh: Cached = { ts: Date.now(), data }
-      memCache = fresh
-      writeStorage(fresh)
-      return data
-    } finally { inflight = null }
-  })()
+  inflight = doFullFetch().then((c) => c.data).finally(() => { inflight = null })
   return inflight
 }
 
