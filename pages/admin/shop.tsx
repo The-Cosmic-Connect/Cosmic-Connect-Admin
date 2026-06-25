@@ -240,6 +240,78 @@ const P0 = {
   tags: '',
   inStock: true,
   featured: false,
+  bestseller: false,
+}
+
+// ── Bestseller mode switch (sits at the top of the Products tab) ───────────────────────────
+function BestsellerModeSwitch() {
+  const [mode, setMode] = useState<'auto' | 'manual' | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    fetch(`${API}/shop-settings`)
+      .then((r) => r.json())
+      .then((d) => setMode(d?.bestsellerMode === 'auto' ? 'auto' : 'manual'))
+      .catch(() => setMode('manual'))
+  }, [])
+
+  async function flip(next: 'auto' | 'manual') {
+    if (next === mode || busy) return
+    setBusy(true)
+    const prev = mode
+    setMode(next)   // optimistic
+    try {
+      const r = await fetch(`${API}/shop-settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bestsellerMode: next }),
+      })
+      if (!r.ok) throw new Error(await r.text())
+    } catch {
+      setMode(prev)   // rollback
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      padding: '10px 14px', border: '1px solid #e5e5e5', borderRadius: 6,
+      background: '#fafafa', marginBottom: 14,
+    }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#333' }}>Bestseller mode</div>
+        <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>
+          {mode === 'auto'
+            ? 'Showing top sellers from the last 30 days of paid orders.'
+            : mode === 'manual'
+              ? 'Showing products you’ve flagged as bestsellers below.'
+              : 'Loading…'}
+        </div>
+      </div>
+
+      {/* Segmented control */}
+      <div style={{
+        display: 'inline-flex', border: '1px solid #d4d4d4', borderRadius: 999,
+        padding: 2, background: '#fff',
+      }}>
+        {(['manual', 'auto'] as const).map((opt) => {
+          const on = mode === opt
+          return (
+            <button key={opt} type="button" disabled={busy} onClick={() => flip(opt)}
+              style={{
+                padding: '5px 14px', fontSize: 12, fontWeight: 600,
+                border: 'none', borderRadius: 999, cursor: busy ? 'wait' : 'pointer',
+                background: on ? '#2b2b2b' : 'transparent',
+                color: on ? '#fff' : '#666',
+                transition: 'all 0.15s ease',
+              }}>
+              {opt === 'manual' ? 'Manual' : 'Auto'}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function Products() {
@@ -321,9 +393,10 @@ function Products() {
       tags:             form.tags
         ? form.tags.split(',').map((s: string) => s.trim()).filter(Boolean)
         : [],
-      inStock:  !!form.inStock,
-      featured: !!form.featured,
-      published: true,
+      inStock:    !!form.inStock,
+      featured:   !!form.featured,
+      bestseller: !!form.bestseller,
+      published:  true,
     }
 
     try {
@@ -372,6 +445,8 @@ function Products() {
           <button className="btn btn-p" onClick={openNew}><Plus size={13} /> Add Product</button>
         </div>
       </div>
+
+      <BestsellerModeSwitch />
 
       <div className="card">
         {busy ? <div className="empty">Loading…</div>
@@ -471,6 +546,10 @@ function Products() {
               <div className="flex gap2 mt2">
                 <label className="check-row"><input type="checkbox" checked={form.inStock} onChange={(e) => f('inStock', e.target.checked)} /> In Stock</label>
                 <label className="check-row" style={{ marginLeft: 12 }}><input type="checkbox" checked={form.featured} onChange={(e) => f('featured', e.target.checked)} /> Featured</label>
+                <label className="check-row" style={{ marginLeft: 12 }}>
+                  <input type="checkbox" checked={form.bestseller} onChange={(e) => f('bestseller', e.target.checked)} /> Bestseller
+                  <span className="muted" style={{ fontSize: 10, marginLeft: 4 }}>(manual mode only)</span>
+                </label>
               </div>
             </div>
             <div className="modal-f">
