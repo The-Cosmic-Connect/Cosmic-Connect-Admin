@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import Shell from '@/components/Shell'
 import { Plus, Pencil, Trash2, X, Upload, Image as ImageIcon } from 'lucide-react'
-import { fetchAllProducts, getCachedProducts, invalidateProductsCache } from '@/lib/fetchProducts'
+import { fetchAllProducts, getCachedProducts, invalidateProductsCache,
+         upsertProductInCache, removeProductFromCache } from '@/lib/fetchProducts'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -409,8 +410,21 @@ function Products() {
         const text = await r.text()
         throw new Error(text || `Request failed (${r.status})`)
       }
-      invalidateProductsCache()
-      setModal(false); load({ force: true })
+      // Backend returns the saved product. Merge it into the local cache and
+      // update the list immediately — no full refetch, no spinner, no 10-second
+      // round-trip storm. The cache stays warm; other admin tabs see the change
+      // on their next mount via the shared module-level memCache.
+      const saved = await r.json().catch(() => null)
+      if (saved && saved.id) {
+        const next = upsertProductInCache(saved)
+        setList(next)
+      } else {
+        // Fallback: backend didn't return the row (shouldn't happen) —
+        // do a forced refetch so the UI is still correct.
+        invalidateProductsCache()
+        load({ force: true })
+      }
+      setModal(false)
     } catch (e: any) {
       setErr(e.message || 'Failed')
     } finally { setSav(false) }
@@ -418,9 +432,21 @@ function Products() {
 
   async function del(id: string) {
     if (!confirm('Delete product?')) return
-    await fetch(`${API}/products/${id}`, { method: 'DELETE' })
-    invalidateProductsCache()
-    load({ force: true })
+    // Optimistic: drop from cache + list right away. If the server call fails
+    // we re-fetch to resync; but typically it just works and the user sees the
+    // row disappear with no perceptible latency.
+    const prev = list
+    const next = removeProductFromCache(id)
+    setList(next)
+    try {
+      const r = await fetch(`${API}/products/${id}`, { method: 'DELETE' })
+      if (!r.ok) throw new Error(await r.text())
+    } catch {
+      // Rollback if delete failed server-side
+      setList(prev)
+      invalidateProductsCache()
+      load({ force: true })
+    }
   }
 
   const f = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }))

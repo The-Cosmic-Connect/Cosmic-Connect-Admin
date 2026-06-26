@@ -130,3 +130,54 @@ export function invalidateProductsCache(): void {
     try { window.localStorage.removeItem(STORAGE) } catch {}
   }
 }
+
+/**
+ * Upsert a single product into the local cache (in-memory + localStorage),
+ * preserving its existing position when updating. Used after admin save() so
+ * the UI updates instantly with zero network calls — no full-catalog refetch.
+ *
+ * For new products (id not yet in cache) the row is prepended so the admin
+ * sees their freshly-created product at the top.
+ *
+ * Returns the new full list (sync), so the caller can pass it straight to
+ * setState without going through fetchAllProducts().
+ */
+export function upsertProductInCache(product: any): any[] {
+  if (!product?.id) return memCache?.data || []
+  // Make sure memCache is hydrated (so localStorage state, if any, isn't lost).
+  const base = memCache?.data || readStorage()?.data || []
+  const idx = base.findIndex((p) => p?.id === product.id)
+  let next: any[]
+  if (idx >= 0) {
+    next = base.slice()
+    next[idx] = { ...base[idx], ...product }    // merge so we keep unsent fields
+  } else {
+    next = [product, ...base]                    // prepend new products
+  }
+  const fresh: Cached = {
+    ts:       Date.now(),
+    // Keep the existing syncedAt watermark; this local edit doesn't change it.
+    syncedAt: memCache?.syncedAt || new Date().toISOString(),
+    data:     next,
+  }
+  memCache = fresh
+  writeStorage(fresh)
+  return next
+}
+
+/**
+ * Drop a product from the local cache by id. Use after admin del() to update
+ * the UI instantly without refetching the catalog.
+ */
+export function removeProductFromCache(id: string): any[] {
+  const base = memCache?.data || readStorage()?.data || []
+  const next = base.filter((p) => p?.id !== id)
+  const fresh: Cached = {
+    ts:       Date.now(),
+    syncedAt: memCache?.syncedAt || new Date().toISOString(),
+    data:     next,
+  }
+  memCache = fresh
+  writeStorage(fresh)
+  return next
+}
