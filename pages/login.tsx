@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { isAuthed, setSession } from '@/lib/auth'
 
+// Force fresh Vercel build to pick up ADMIN_SHARED_SECRET / BACKEND_API_URL
 export default function Login() {
   const router = useRouter()
   const [user, setUser] = useState('')
