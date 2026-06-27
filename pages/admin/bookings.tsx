@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Shell from '@/components/Shell'
 import { Calendar, Clock, User, Video, X, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
+import { authedFetch } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -38,8 +39,9 @@ export default function BookingsPage() {
     if (filterAgent)  params.set('agent_id', filterAgent)
     if (filterStatus) params.set('status',   filterStatus)
 
+    // /bookings is admin-only (customer PII); /agents and /services stay public.
     const [b, a, s] = await Promise.all([
-      fetch(`${API}/bookings?${params}`).then(r => r.json()),
+      authedFetch(`${API}/bookings?${params}`).then(r => r.json()),
       fetch(`${API}/agents?active_only=false`).then(r => r.json()),
       fetch(`${API}/services?active_only=false`).then(r => r.json()),
     ])
@@ -54,7 +56,8 @@ export default function BookingsPage() {
   async function cancelBooking(bookingId: string) {
     if (!confirm('Cancel this booking? A refund will need to be processed manually.')) return
     setCancelling(true)
-    await fetch(`${API}/bookings/${bookingId}/cancel`, { method: 'POST' })
+    // Admin-only write — must carry the JWT.
+    await authedFetch(`${API}/bookings/${bookingId}/cancel`, { method: 'POST' })
     setCancelling(false)
     setSelected(null)
     load()

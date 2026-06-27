@@ -4,6 +4,7 @@ import Shell from '@/components/Shell'
 import { Plus, Pencil, Trash2, X, Upload, Image as ImageIcon } from 'lucide-react'
 import { fetchAllProducts, getCachedProducts, invalidateProductsCache,
          upsertProductInCache, removeProductFromCache } from '@/lib/fetchProducts'
+import { authedFetch } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -60,13 +61,16 @@ async function compressImage(file: File): Promise<{ blob: Blob; contentType: str
 
 async function uploadImage(file: File): Promise<string> {
   const { blob, contentType, filename } = await compressImage(file)
-  const signRes = await fetch(`${API}/uploads/sign`, {
+  // Admin-only endpoint — must carry the JWT.
+  const signRes = await authedFetch(`${API}/uploads/sign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filename, contentType, size: blob.size }),
   })
   if (!signRes.ok) throw new Error(`Sign failed: ${await signRes.text()}`)
   const { uploadUrl, publicUrl } = await signRes.json()
+  // The actual S3 PUT uses the presigned URL itself as auth — no JWT needed
+  // (and S3 would reject an unexpected Authorization header anyway).
   const putRes = await fetch(uploadUrl, {
     method: 'PUT',
     headers: { 'Content-Type': contentType },
@@ -228,6 +232,7 @@ function BestsellerModeSwitch() {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
+    // Public read — no auth needed.
     fetch(`${API}/shop-settings`)
       .then((r) => r.json())
       .then((d) => setMode(d?.bestsellerMode === 'auto' ? 'auto' : 'manual'))
@@ -240,7 +245,8 @@ function BestsellerModeSwitch() {
     const prev = mode
     setMode(next)
     try {
-      const r = await fetch(`${API}/shop-settings`, {
+      // Admin-only write — must carry the JWT.
+      const r = await authedFetch(`${API}/shop-settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bestsellerMode: next }),
@@ -370,7 +376,8 @@ function Products() {
     }
 
     try {
-      const r = await fetch(`${API}/products${eid ? `/${eid}` : ''}`, {
+      // Admin-only write — must carry the JWT.
+      const r = await authedFetch(`${API}/products${eid ? `/${eid}` : ''}`, {
         method: eid ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -399,7 +406,8 @@ function Products() {
     const next = removeProductFromCache(id)
     setList(next)
     try {
-      const r = await fetch(`${API}/products/${id}`, { method: 'DELETE' })
+      // Admin-only write — must carry the JWT.
+      const r = await authedFetch(`${API}/products/${id}`, { method: 'DELETE' })
       if (!r.ok) throw new Error(await r.text())
     } catch {
       setList(prev)
@@ -563,7 +571,8 @@ function Coupons() {
 
   const load = useCallback(()=>{
     setBusy(true)
-    fetch(`${API}/coupons`).then(r=>r.json())
+    // Admin-only — must carry the JWT.
+    authedFetch(`${API}/coupons`).then(r=>r.json())
       .then(d=>{setList(Array.isArray(d)?d:d.coupons||[]);setBusy(false)})
       .catch(()=>setBusy(false))
   },[])
@@ -578,17 +587,17 @@ function Coupons() {
       maxUsage:form.maxUsage?parseInt(form.maxUsage):null,
     }
     try {
-      const r = await fetch(`${API}/coupons`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      const r = await authedFetch(`${API}/coupons`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       if(!r.ok) throw new Error(await r.text())
       setModal(false); setForm(C0); load()
     } catch(e:any){setErr(e.message||'Failed')} finally{setSav(false)}
   }
 
   /** Toggle coupon active flag. Calls PUT /coupons/{code} which is now
-   *  implemented on the backend (was a 405 before). */
+   *  implemented on the backend (was a 405 before). Admin-only — JWT required. */
   async function toggle(c:any){
     try {
-      const r = await fetch(`${API}/coupons/${c.code}`, {
+      const r = await authedFetch(`${API}/coupons/${c.code}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active: !c.active }),
@@ -603,7 +612,7 @@ function Coupons() {
 
   async function del(code:string){
     if(!confirm(`Delete ${code}?`)) return
-    await fetch(`${API}/coupons/${code}`,{method:'DELETE'}); load()
+    await authedFetch(`${API}/coupons/${code}`,{method:'DELETE'}); load()
   }
 
   const f=(k:string,v:any)=>setForm((p:any)=>({...p,[k]:v}))
@@ -681,7 +690,8 @@ function Orders() {
   const [busy, setBusy] = useState(true)
 
   useEffect(()=>{
-    fetch(`${API}/orders`).then(r=>r.json())
+    // Admin-only — must carry the JWT.
+    authedFetch(`${API}/orders`).then(r=>r.json())
       .then(d=>{ setList(Array.isArray(d)?d:d.orders||[]); setBusy(false) })
       .catch(()=>setBusy(false))
   },[])

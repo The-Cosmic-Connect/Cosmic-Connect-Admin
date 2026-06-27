@@ -17,8 +17,14 @@ export default function Login() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user, pass }),
     })
-    if (r.ok) { setSession(); router.replace('/admin') }
-    else      { setErr('Invalid credentials'); setBusy(false) }
+    const data = await r.json().catch(() => ({}))
+    if (r.ok && data.token) {
+      setSession(data.token)
+      router.replace('/admin')
+    } else {
+      setErr(data.error || 'Invalid credentials')
+      setBusy(false)
+    }
   }
 
   return (

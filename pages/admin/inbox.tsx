@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Shell from '@/components/Shell'
 import { Mail, Calendar, BookOpen } from 'lucide-react'
+import { authedFetch } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -68,7 +69,9 @@ function ItemList({ endpoint, cols }: { endpoint: string; cols: { key: string; l
 
   useEffect(() => {
     setBusy(true)
-    fetch(`${API}${endpoint}`)
+    // Admin-only endpoint — must carry the JWT (these rows contain customer
+    // names, emails, phone numbers, and free-text messages).
+    authedFetch(`${API}${endpoint}`)
       .then(r => r.json())
       .then(d => { setItems(Array.isArray(d) ? d : d.items || d.inquiries || d.messages || []); setBusy(false) })
       .catch(() => setBusy(false))

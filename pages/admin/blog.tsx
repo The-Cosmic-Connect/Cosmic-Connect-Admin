@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import Shell from '@/components/Shell'
 import { Plus, Pencil, Trash2, X, Eye, EyeOff } from 'lucide-react'
+import { authedFetch } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -46,14 +47,16 @@ export default function BlogPage() {
     }
     try {
       const url = eid ? `${API}/blog/${eid}` : `${API}/blog`
-      const r = await fetch(url,{method:eid?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      // Admin-only write — must carry the JWT.
+      const r = await authedFetch(url,{method:eid?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       if(!r.ok) throw new Error(await r.text())
       setModal(false); load()
     } catch(e:any){setErr(e.message||'Failed')} finally{setSav(false)}
   }
 
   async function togglePublish(p:any){
-    await fetch(`${API}/blog/${p.id}`,{method:'PUT',
+    // Admin-only write — must carry the JWT.
+    await authedFetch(`${API}/blog/${p.id}`,{method:'PUT',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({published:!p.published})})
     load()
@@ -61,7 +64,8 @@ export default function BlogPage() {
 
   async function del(id:string){
     if(!confirm('Delete this post?')) return
-    await fetch(`${API}/blog/${id}`,{method:'DELETE'}); load()
+    // Admin-only write — must carry the JWT.
+    await authedFetch(`${API}/blog/${id}`,{method:'DELETE'}); load()
   }
 
   const f=(k:string,v:any)=>setForm((p:any)=>({...p,[k]:v}))

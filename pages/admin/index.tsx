@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Shell from '@/components/Shell'
 import Link from 'next/link'
 import { fetchAllProducts, getCachedProducts } from '@/lib/fetchProducts'
+import { authedFetch } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -25,11 +26,12 @@ export default function Dashboard() {
     Promise.all([
       // Use the cached, paginating fetchAllProducts() so the dashboard counter
       // reflects the *real* total — not the 100-item first DynamoDB page that
-      // a naive /products call returns.
+      // a naive /products call returns. Public endpoint, plain fetch is fine.
       fetchAllProducts().then(items => items.length).catch(() => 0),
-      safe(fetch(`${API}/orders`), d => (Array.isArray(d) ? d : d.orders || []).length),
+      // Orders and inbox are admin-only endpoints now — must carry the JWT.
+      safe(authedFetch(`${API}/orders`), d => (Array.isArray(d) ? d : d.orders || []).length),
       safe(fetch(`${API}/blog`),   d => (d.posts || d).length),
-      safe(fetch(`${API}/inbox`),  d => (d.items || []).length),
+      safe(authedFetch(`${API}/inbox`),  d => (d.items || []).length),
     ]).then(([products, orders, posts, inbox]) =>
       setS({
         products: String(products),

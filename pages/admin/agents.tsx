@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Shell from '@/components/Shell'
 import { Plus, Trash2, Edit2, Link2, Check, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { authedFetch } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -111,7 +112,8 @@ export default function AgentsPage() {
     try {
       const method = editing ? 'PUT' : 'POST'
       const url    = editing ? `${API}/agents/${editing.id}` : `${API}/agents`
-      const r = await fetch(url, {
+      // Admin-only write — must carry the JWT.
+      const r = await authedFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
@@ -128,7 +130,8 @@ export default function AgentsPage() {
 
   async function deleteAgent(id: string) {
     if (!confirm('Delete this agent?')) return
-    await fetch(`${API}/agents/${id}`, { method: 'DELETE' })
+    // Admin-only write — must carry the JWT.
+    await authedFetch(`${API}/agents/${id}`, { method: 'DELETE' })
     load()
   }
 

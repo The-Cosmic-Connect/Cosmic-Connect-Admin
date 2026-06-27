@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Shell from '@/components/Shell'
 import { Plus, Edit2, Trash2, GripVertical } from 'lucide-react'
+import { authedFetch } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -39,12 +40,14 @@ export default function ServicesAdminPage() {
     setSaving(true)
     const url    = editing ? `${API}/services/${editing.id}` : `${API}/services`
     const method = editing ? 'PUT' : 'POST'
-    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+    // Admin-only write — must carry the JWT.
+    await authedFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
     setSaving(false); setShowForm(false); load()
   }
 
   async function toggleActive(s: Service) {
-    await fetch(`${API}/services/${s.id}`, {
+    // Admin-only write — must carry the JWT.
+    await authedFetch(`${API}/services/${s.id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isActive: !s.isActive }),
     })
@@ -53,7 +56,8 @@ export default function ServicesAdminPage() {
 
   async function deleteService(id: string) {
     if (!confirm('Delete this service? Agents with this service assigned will lose it.')) return
-    await fetch(`${API}/services/${id}`, { method: 'DELETE' })
+    // Admin-only write — must carry the JWT.
+    await authedFetch(`${API}/services/${id}`, { method: 'DELETE' })
     load()
   }
 
