@@ -29,55 +29,37 @@ function toSlug(s: string): string {
 }
 
 /**
- * Walk the paginated /products endpoint with caching.
- * Implementation lives in lib/fetchProducts.ts so other admin pages can share
- * the same cache (and call invalidateProductsCache() to bust it on edits).
- */
-
-/**
  * Resize an image to max 1600px on the long edge and re-encode as JPEG with
- * quality 0.85. Returns a Blob suitable for direct PUT to S3. This keeps photo
+ * quality 0.85. Returns a Blob suitable for direct PUT to S3. Keeps photo
  * uploads under ~500KB even from a phone camera.
  */
 async function compressImage(file: File): Promise<{ blob: Blob; contentType: string; filename: string }> {
-  // Skip resize for tiny files or non-images
   if (!file.type.startsWith('image/') || file.size < 200 * 1024) {
     return { blob: file, contentType: file.type || 'image/jpeg', filename: file.name }
   }
-
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const i = new Image()
     i.onload = () => resolve(i)
     i.onerror = reject
     i.src = URL.createObjectURL(file)
   })
-
   const MAX = 1600
   const scale = Math.min(1, MAX / Math.max(img.width, img.height))
   const w = Math.round(img.width  * scale)
   const h = Math.round(img.height * scale)
-
   const canvas = document.createElement('canvas')
   canvas.width = w; canvas.height = h
   const ctx = canvas.getContext('2d')!
   ctx.drawImage(img, 0, 0, w, h)
-
   const blob: Blob = await new Promise((resolve) =>
     canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.85),
   )
-
-  // Strip the original extension; we always re-encode to .jpg
   const base = file.name.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9._-]+/g, '-')
   return { blob, contentType: 'image/jpeg', filename: `${base || 'image'}.jpg` }
 }
 
-/**
- * Upload a single file to S3 via the backend's pre-signed URL endpoint.
- * Returns the final public URL where the image will be readable.
- */
 async function uploadImage(file: File): Promise<string> {
   const { blob, contentType, filename } = await compressImage(file)
-
   const signRes = await fetch(`${API}/uploads/sign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -85,8 +67,6 @@ async function uploadImage(file: File): Promise<string> {
   })
   if (!signRes.ok) throw new Error(`Sign failed: ${await signRes.text()}`)
   const { uploadUrl, publicUrl } = await signRes.json()
-
-  // Direct browser PUT to S3
   const putRes = await fetch(uploadUrl, {
     method: 'PUT',
     headers: { 'Content-Type': contentType },
@@ -125,7 +105,6 @@ function ImageUploader({
   function removeAt(i: number) {
     onChange(images.filter((_, idx) => idx !== i))
   }
-
   function move(i: number, dir: -1 | 1) {
     const j = i + dir
     if (j < 0 || j >= images.length) return
@@ -244,7 +223,6 @@ const P0 = {
   bestseller: false,
 }
 
-// ── Bestseller mode switch (sits at the top of the Products tab) ───────────────────────────
 function BestsellerModeSwitch() {
   const [mode, setMode] = useState<'auto' | 'manual' | null>(null)
   const [busy, setBusy] = useState(false)
@@ -260,7 +238,7 @@ function BestsellerModeSwitch() {
     if (next === mode || busy) return
     setBusy(true)
     const prev = mode
-    setMode(next)   // optimistic
+    setMode(next)
     try {
       const r = await fetch(`${API}/shop-settings`, {
         method: 'PUT',
@@ -269,7 +247,7 @@ function BestsellerModeSwitch() {
       })
       if (!r.ok) throw new Error(await r.text())
     } catch {
-      setMode(prev)   // rollback
+      setMode(prev)
     } finally { setBusy(false) }
   }
 
@@ -289,8 +267,6 @@ function BestsellerModeSwitch() {
               : 'Loading…'}
         </div>
       </div>
-
-      {/* Segmented control */}
       <div style={{
         display: 'inline-flex', border: '1px solid #d4d4d4', borderRadius: 999,
         padding: 2, background: '#fff',
@@ -316,8 +292,6 @@ function BestsellerModeSwitch() {
 }
 
 function Products() {
-  // Hydrate from cache synchronously so switching admin tabs feels instant
-  // — no loading flash unless the cache is genuinely cold.
   const [list, setList] = useState<any[]>(() => getCachedProducts() || [])
   const [busy, setBusy] = useState<boolean>(() => !getCachedProducts())
   const [modal, setModal] = useState(false)
@@ -328,8 +302,6 @@ function Products() {
   const [filter, setFilter] = useState('')
 
   const load = useCallback((opts: { force?: boolean } = {}) => {
-    // Only show busy state on cold/forced loads; warm-cache reads complete
-    // synchronously and don't need a spinner.
     const cached = getCachedProducts()
     if (!opts.force && cached) {
       setList(cached); setBusy(false); return
@@ -342,8 +314,6 @@ function Products() {
   }, [])
 
   useEffect(() => {
-    // First mount: if we hydrated from cache there's nothing to do; otherwise
-    // kick off the initial fetch.
     if (!getCachedProducts()) load()
   }, [load])
 
@@ -356,7 +326,7 @@ function Products() {
       ...P0,
       ...p,
       slug: p.slug || '',
-      slugOverride: true,                    // existing slug — don't auto-rewrite
+      slugOverride: true,
       collections: Array.isArray(p.collections) ? p.collections : [],
       images:      Array.isArray(p.images)      ? p.images      : [],
       tags: (p.tags || []).join(', '),
@@ -364,7 +334,6 @@ function Products() {
     setEid(p.id); setErr(''); setModal(true)
   }
 
-  /** auto-update slug as the user types the name, unless they manually edited it */
   function setName(name: string) {
     setForm((p: any) => ({
       ...p,
@@ -410,17 +379,11 @@ function Products() {
         const text = await r.text()
         throw new Error(text || `Request failed (${r.status})`)
       }
-      // Backend returns the saved product. Merge it into the local cache and
-      // update the list immediately — no full refetch, no spinner, no 10-second
-      // round-trip storm. The cache stays warm; other admin tabs see the change
-      // on their next mount via the shared module-level memCache.
       const saved = await r.json().catch(() => null)
       if (saved && saved.id) {
         const next = upsertProductInCache(saved)
         setList(next)
       } else {
-        // Fallback: backend didn't return the row (shouldn't happen) —
-        // do a forced refetch so the UI is still correct.
         invalidateProductsCache()
         load({ force: true })
       }
@@ -432,9 +395,6 @@ function Products() {
 
   async function del(id: string) {
     if (!confirm('Delete product?')) return
-    // Optimistic: drop from cache + list right away. If the server call fails
-    // we re-fetch to resync; but typically it just works and the user sees the
-    // row disappear with no perceptible latency.
     const prev = list
     const next = removeProductFromCache(id)
     setList(next)
@@ -442,7 +402,6 @@ function Products() {
       const r = await fetch(`${API}/products/${id}`, { method: 'DELETE' })
       if (!r.ok) throw new Error(await r.text())
     } catch {
-      // Rollback if delete failed server-side
       setList(prev)
       invalidateProductsCache()
       load({ force: true })
@@ -591,7 +550,7 @@ function Products() {
   )
 }
 
-// ── Coupons ───────────────────────────────────────────────────────────────────
+// ── Coupons ──────────────────────────────────────────────────────────────────
 const C0 = { code:'',discountType:'percentage',discountValue:'',minOrderINR:'',maxUsage:'',expiresAt:'',active:true }
 
 function Coupons() {
@@ -625,9 +584,21 @@ function Coupons() {
     } catch(e:any){setErr(e.message||'Failed')} finally{setSav(false)}
   }
 
+  /** Toggle coupon active flag. Calls PUT /coupons/{code} which is now
+   *  implemented on the backend (was a 405 before). */
   async function toggle(c:any){
-    await fetch(`${API}/coupons/${c.code}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({active:!c.active})})
-    load()
+    try {
+      const r = await fetch(`${API}/coupons/${c.code}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !c.active }),
+      })
+      if (!r.ok) throw new Error(await r.text())
+      load()
+    } catch (e) {
+      // Surface the failure rather than silently doing nothing
+      alert('Could not update coupon. Make sure the backend is deployed with the new endpoint.')
+    }
   }
 
   async function del(code:string){
@@ -704,7 +675,7 @@ function Coupons() {
   )
 }
 
-// ── Orders ────────────────────────────────────────────────────────────────────
+// ── Orders ───────────────────────────────────────────────────────────────────
 function Orders() {
   const [list, setList] = useState<any[]>([])
   const [busy, setBusy] = useState(true)
@@ -717,6 +688,20 @@ function Orders() {
 
   const STATUS_COLOR: Record<string,string> = {
     paid:'b-g', pending:'b-y', failed:'b-r', refunded:'b-u'
+  }
+
+  // Backend stores totalINR for PhonePe orders and totalUSD for PayPal.
+  // Pick whichever is present so the column is always populated.
+  function formatAmount(o: any): string {
+    const inrCandidate = o.totalINR ?? (o.currency === 'INR' ? o.total : undefined)
+    const usdCandidate = o.totalUSD ?? (o.currency === 'USD' ? o.total : undefined)
+    if (typeof inrCandidate === 'number' && inrCandidate > 0) {
+      return '₹' + inrCandidate.toLocaleString('en-IN')
+    }
+    if (typeof usdCandidate === 'number' && usdCandidate > 0) {
+      return '$' + usdCandidate.toFixed(2)
+    }
+    return '—'
   }
 
   return (
@@ -735,7 +720,7 @@ function Orders() {
                     <div>{o.customerName||'—'}</div>
                     <div className="muted">{o.customerEmail}</div>
                   </td>
-                  <td>{o.currency==='INR'?`₹${o.total?.toLocaleString()}`:`$${o.total}`}</td>
+                  <td>{formatAmount(o)}</td>
                   <td><span className={`b ${STATUS_COLOR[o.status]||'b-n'}`}>{o.status}</span></td>
                   <td className="muted">{o.createdAt?o.createdAt.split('T')[0]:'—'}</td>
                 </tr>
@@ -748,7 +733,7 @@ function Orders() {
   )
 }
 
-// ── Shop page (tabs) ──────────────────────────────────────────────────────────
+// ── Shop page (tabs) ─────────────────────────────────────────────────────────
 export default function ShopPage() {
   const router = useRouter()
   const [tab, setTab] = useState<'products'|'coupons'|'orders'>('products')
