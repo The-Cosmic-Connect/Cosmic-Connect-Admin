@@ -93,15 +93,13 @@ export default function BookingsPage() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
         <select value={filterAgent} onChange={e => setFilterAgent(e.target.value)}
-          style={{ padding: '6px 12px', background: '#1A0A2E', border: '1px solid #2D1B5E',
-            color: '#F5EDD6', borderRadius: 6, fontSize: 13 }}>
+          style={{ width: 'auto', padding: '7px 12px', fontSize: 13 }}>
           <option value="">All Agents</option>
           {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
 
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          style={{ padding: '6px 12px', background: '#1A0A2E', border: '1px solid #2D1B5E',
-            color: '#F5EDD6', borderRadius: 6, fontSize: 13 }}>
+          style={{ width: 'auto', padding: '7px 12px', fontSize: 13 }}>
           <option value="">All Status</option>
           <option value="confirmed">Confirmed</option>
           <option value="pending">Pending</option>
@@ -123,7 +121,7 @@ export default function BookingsPage() {
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid #2D1B5E' }}>
+              <tr style={{ borderBottom: '1px solid #eee' }}>
                 {['Date & Time','Customer','Agent','Service','Amount','Status','Meet','Actions'].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: '#888',
                     fontWeight: 500, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -136,18 +134,18 @@ export default function BookingsPage() {
               {bookings.map(b => {
                 const sc = STATUS_COLORS[b.status] || STATUS_COLORS.pending
                 return (
-                  <tr key={b.id} style={{ borderBottom: '1px solid #1A0A2E' }}
+                  <tr key={b.id} style={{ borderBottom: '1px solid #f5f5f5' }}
                     className="table-row">
                     <td style={{ padding: '12px' }}>
-                      <div style={{ fontWeight: 500, color: '#F5EDD6' }}>{b.date}</div>
+                      <div style={{ fontWeight: 500, color: '#181818' }}>{b.date}</div>
                       <div style={{ color: '#888', fontSize: 11 }}>{b.startTime} – {b.endTime} IST</div>
                     </td>
                     <td style={{ padding: '12px' }}>
-                      <div style={{ color: '#F5EDD6' }}>{b.customerName}</div>
+                      <div style={{ color: '#181818' }}>{b.customerName}</div>
                       <div style={{ color: '#888', fontSize: 11 }}>{b.customerEmail}</div>
                     </td>
-                    <td style={{ padding: '12px', color: '#ccc' }}>{agentName(b.agentId)}</td>
-                    <td style={{ padding: '12px', color: '#ccc' }}>{serviceName(b.serviceId)}</td>
+                    <td style={{ padding: '12px', color: '#444' }}>{agentName(b.agentId)}</td>
+                    <td style={{ padding: '12px', color: '#444' }}>{serviceName(b.serviceId)}</td>
                     <td style={{ padding: '12px', color: '#C9A84C', fontWeight: 600 }}>
                       {b.currency === 'INR' ? `₹${b.priceINR}` : `$${b.priceUSD}`}
                     </td>
@@ -207,7 +205,7 @@ export default function BookingsPage() {
               ].map(row => (
                 <div key={row.label} style={{ display: 'flex', gap: 12 }}>
                   <span style={{ color: '#888', fontSize: 12, width: 100, flexShrink: 0 }}>{row.label}</span>
-                  <span style={{ color: '#F5EDD6', fontSize: 13 }}>{row.value}</span>
+                  <span style={{ color: '#181818', fontSize: 13 }}>{row.value}</span>
                 </div>
               ))}
 
