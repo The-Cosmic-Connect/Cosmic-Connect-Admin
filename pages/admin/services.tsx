@@ -8,9 +8,22 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 interface Service {
   id: string; name: string; description: string
   durationMins: number; isActive: boolean; order: number
+  category?: string
 }
 
-const EMPTY = { name: '', description: '', durationMins: 60, isActive: true, order: 0 }
+const EMPTY = { name: '', description: '', durationMins: 60, isActive: true, order: 0, category: '' }
+
+// Must match the 7 booking-flow category slugs used on the frontend
+// (frontend/lib/serviceCategories.ts) and the page routes under frontend/pages/.
+const CATEGORIES = [
+  { slug: 'tarot-reading-services',                title: 'Tarot Reading (Unlock Life\'s Mysteries)' },
+  { slug: 'akashic-mokshapat-pastlife',             title: 'Akashic, Mokshapat & Past Life (Soul Legacy Healing)' },
+  { slug: 'reiki-crystal-photo-healing',            title: 'Reiki, Crystal & Photo Healing (Energy Healing Modalities)' },
+  { slug: 'sound-healing-services',                 title: 'Sound Healing' },
+  { slug: 'black-magic-evil-eye-removal',           title: 'Black Magic & Evil Eye Removal (Shielding from Dark Energies)' },
+  { slug: 'crystal-grids',                          title: 'Crystal Grids (Sacred Crystal Alchemy)' },
+  { slug: 'pendulum-dowsing-gem-stone-counselling', title: 'Pendulum Dowsing & Gemstone Counselling (SoulPath Guidance)' },
+]
 
 export default function ServicesAdminPage() {
   const [services, setServices] = useState<Service[]>([])
@@ -32,7 +45,7 @@ export default function ServicesAdminPage() {
   function openCreate() { setEditing(null); setForm(EMPTY); setShowForm(true) }
   function openEdit(s: Service) {
     setEditing(s)
-    setForm({ name: s.name, description: s.description, durationMins: s.durationMins, isActive: s.isActive, order: s.order || 0 })
+    setForm({ name: s.name, description: s.description, durationMins: s.durationMins, isActive: s.isActive, order: s.order || 0, category: s.category || '' })
     setShowForm(true)
   }
 
@@ -40,8 +53,9 @@ export default function ServicesAdminPage() {
     setSaving(true)
     const url    = editing ? `${API}/services/${editing.id}` : `${API}/services`
     const method = editing ? 'PUT' : 'POST'
+    const payload = { ...form, category: form.category || null }
     // Admin-only write — must carry the JWT.
-    await authedFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+    await authedFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     setSaving(false); setShowForm(false); load()
   }
 
@@ -91,6 +105,9 @@ export default function ServicesAdminPage() {
                   </span>
                 </div>
                 {s.description && <p style={{ fontSize: 12, color: '#888', margin: '4px 0 0' }}>{s.description}</p>}
+                <p style={{ fontSize: 11, color: s.category ? '#C9A84C' : '#dc2626', margin: '4px 0 0' }}>
+                  {s.category ? CATEGORIES.find(c => c.slug === s.category)?.title || s.category : 'No category — hidden from booking pages'}
+                </p>
               </div>
               <div style={{ fontSize: 13, color: '#C9A84C', fontWeight: 600, minWidth: 70, textAlign: 'right' }}>
                 {s.durationMins} mins
@@ -142,6 +159,16 @@ export default function ServicesAdminPage() {
               <input type="number" value={form.durationMins} min={15} max={480}
                 onChange={e => setForm(f => ({ ...f, durationMins: Number(e.target.value) }))}
                 placeholder="Or enter custom duration" />
+            </div>
+
+            <div className="form-group">
+              <label>Booking Category</label>
+              <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+                <option value="">— Uncategorized (won't show on a category page) —</option>
+                {CATEGORIES.map(c => (
+                  <option key={c.slug} value={c.slug}>{c.title}</option>
+                ))}
+              </select>
             </div>
 
             <div className="form-group">

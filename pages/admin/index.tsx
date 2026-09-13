@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import Shell from '@/components/Shell'
 import Link from 'next/link'
-import { fetchAllProducts, getCachedProducts } from '@/lib/fetchProducts'
+import { getCachedProducts } from '@/lib/fetchProducts'
 import { authedFetch } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -9,6 +9,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 export default function Dashboard() {
   // Seed the products counter from cache so the dashboard renders an instant
   // number when products were loaded recently (e.g. you just left the Shop tab).
+  // The real /admin/dashboard call below will correct this if it's stale.
   const [s, setS] = useState(() => {
     const cached = getCachedProducts()
     return {
@@ -20,26 +21,17 @@ export default function Dashboard() {
   })
 
   useEffect(() => {
-    const safe = (p: Promise<any>, fn: (d: any) => number) =>
-      p.then(r => r.json()).then(fn).catch(() => 0)
-
-    Promise.all([
-      // Use the cached, paginating fetchAllProducts() so the dashboard counter
-      // reflects the *real* total — not the 100-item first DynamoDB page that
-      // a naive /products call returns. Public endpoint, plain fetch is fine.
-      fetchAllProducts().then(items => items.length).catch(() => 0),
-      // Orders and inbox are admin-only endpoints now — must carry the JWT.
-      safe(authedFetch(`${API}/orders`), d => (Array.isArray(d) ? d : d.orders || []).length),
-      safe(fetch(`${API}/blog`),   d => (d.posts || d).length),
-      safe(authedFetch(`${API}/inbox`),  d => (d.items || []).length),
-    ]).then(([products, orders, posts, inbox]) =>
-      setS({
-        products: String(products),
-        orders:   String(orders),
-        posts:    String(posts),
-        inbox:    String(inbox),
-      })
-    )
+    // Single round-trip for all four counters, instead of one call per
+    // counter (products/orders/posts/inbox). Admin-only — carries the JWT.
+    authedFetch(`${API}/admin/dashboard`)
+      .then(r => r.json())
+      .then(d => setS({
+        products: String(d.products ?? '—'),
+        orders:   String(d.orders   ?? '—'),
+        posts:    String(d.posts    ?? '—'),
+        inbox:    String(d.inbox    ?? '—'),
+      }))
+      .catch(() => {})
   }, [])
 
   return (
