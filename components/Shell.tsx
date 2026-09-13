@@ -3,19 +3,21 @@ import { useRouter } from 'next/router'
 import Link from 'next/link'
 import {
   ShoppingBag, FileText, Inbox, Settings, LayoutDashboard,
-  LogOut, ExternalLink, Users, Calendar, Briefcase
+  LogOut, ExternalLink, Users, Calendar, Briefcase, Megaphone, GalleryHorizontal
 } from 'lucide-react'
 import { isAuthed, clearSession } from '@/lib/auth'
 
 const NAV = [
-  { href: '/admin',           icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/admin/shop',      icon: ShoppingBag,     label: 'Shop' },
-  { href: '/admin/agents',    icon: Users,           label: 'Agents' },
-  { href: '/admin/services',  icon: Briefcase,       label: 'Services' },
-  { href: '/admin/bookings',  icon: Calendar,        label: 'Bookings' },
-  { href: '/admin/blog',      icon: FileText,        label: 'Blog' },
-  { href: '/admin/inbox',     icon: Inbox,           label: 'Inbox' },
-  { href: '/admin/settings',  icon: Settings,        label: 'Settings' },
+  { href: '/admin',               icon: LayoutDashboard,   label: 'Dashboard' },
+  { href: '/admin/shop',          icon: ShoppingBag,       label: 'Shop' },
+  { href: '/admin/agents',        icon: Users,             label: 'Agents' },
+  { href: '/admin/services',      icon: Briefcase,         label: 'Services' },
+  { href: '/admin/bookings',      icon: Calendar,          label: 'Bookings' },
+  { href: '/admin/carousel',      icon: GalleryHorizontal, label: 'Carousel' },
+  { href: '/admin/announcements', icon: Megaphone,         label: 'Announcements' },
+  { href: '/admin/blog',          icon: FileText,          label: 'Blog' },
+  { href: '/admin/inbox',         icon: Inbox,             label: 'Inbox' },
+  { href: '/admin/settings',      icon: Settings,          label: 'Settings' },
 ]
 
 export default function Shell({ children, title }: { children: React.ReactNode; title: string }) {
