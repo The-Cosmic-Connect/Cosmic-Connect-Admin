@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Shell from '@/components/Shell'
 import { Plus, Edit2, Trash2, GripVertical, Upload, Image as ImageIcon } from 'lucide-react'
 import { authedFetch } from '@/lib/auth'
+import { SITE_ROUTES } from '@/lib/siteRoutes'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -214,7 +215,10 @@ export default function CarouselAdminPage() {
                   <button type="button" className="btn btn-s btn-sm" onClick={() => inputRef.current?.click()} disabled={uploading}>
                     <Upload size={12} /> {uploading ? 'Uploading…' : form.imageUrl ? 'Replace image' : 'Add image'}
                   </button>
-                  <span className="muted" style={{ fontSize: 12 }}>Optional for the "Text Only" layout.</span>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Optional for the "Text Only" layout. For no/minimal cropping, upload at 2400×1030px
+                    (21:9 — matches the banner shape on desktop, narrower crop shown on mobile).
+                  </span>
                 </div>
                 <input ref={inputRef} type="file" accept="image/*" style={{ display: 'none' }}
                   onChange={e => handleFile(e.target.files)} />
@@ -251,7 +255,10 @@ export default function CarouselAdminPage() {
               </div>
               <div className="form-group" style={{ flex: 1 }}>
                 <label>Button Link</label>
-                <input value={form.ctaLink} onChange={e => setForm(f => ({ ...f, ctaLink: e.target.value }))} placeholder="/shop" />
+                <input value={form.ctaLink} list="site-routes" onChange={e => setForm(f => ({ ...f, ctaLink: e.target.value }))} placeholder="/shop" />
+                <datalist id="site-routes">
+                  {SITE_ROUTES.map(r => <option key={r.path} value={r.path}>{r.label}</option>)}
+                </datalist>
               </div>
             </div>
 

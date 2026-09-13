@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Shell from '@/components/Shell'
 import { Plus, Edit2, Trash2, GripVertical, Megaphone } from 'lucide-react'
 import { authedFetch } from '@/lib/auth'
+import { SITE_ROUTES } from '@/lib/siteRoutes'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -118,8 +119,12 @@ export default function AnnouncementsAdminPage() {
 
             <div className="form-group">
               <label>Link (optional)</label>
-              <input value={form.link} onChange={e => setForm(f => ({ ...f, link: e.target.value }))}
+              <input value={form.link} list="site-routes" onChange={e => setForm(f => ({ ...f, link: e.target.value }))}
                 placeholder="/shop or https://..." />
+              <datalist id="site-routes">
+                {SITE_ROUTES.map(r => <option key={r.path} value={r.path}>{r.label}</option>)}
+              </datalist>
+              <span className="muted" style={{ fontSize: 11 }}>Start typing "/" for known page suggestions, or paste a full https:// URL.</span>
             </div>
 
             <div className="form-group">
