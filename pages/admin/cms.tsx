@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import Shell from '@/components/Shell'
 import { Plus, Edit2, Trash2, Layers, ExternalLink } from 'lucide-react'
 import { authedFetch } from '@/lib/auth'
+import BlockEditor from '@/components/cms/BlockEditor'
+import { type CmsBlock, genBlockId } from '@/components/cms/blockTypes'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.arkasuryacrystals.com'
@@ -16,7 +18,11 @@ interface CmsPage {
   heroImage: string
   icon: string
   accentColor: string
+  // Legacy field — the old plain "paste HTML" box. No longer edited from
+  // this page (see `blocks` below); kept in the type only so `openEdit` can
+  // read an old page's content once, to seed its first block.
   bodyHtml: string
+  blocks: CmsBlock[]
   boundCategorySlug: string | null
   boundCourseSlug: string | null
   isPublished: boolean
@@ -52,6 +58,7 @@ const COURSES = [
 const EMPTY = {
   slug: '', title: '', seoTitle: '', seoDesc: '', tagline: '',
   heroImage: '', icon: '', accentColor: '#C9A84C', bodyHtml: '',
+  blocks: [] as CmsBlock[],
   boundCategorySlug: '', boundCourseSlug: '', isPublished: false,
 }
 
@@ -83,10 +90,19 @@ export default function CmsAdminPage() {
   }
   function openEdit(p: CmsPage) {
     setEditing(p)
+    // Pages saved before the block editor existed have content in the old
+    // `bodyHtml` field and an empty/missing `blocks` array. Seed the editor
+    // with that content as a single "Custom HTML" block so nothing is lost —
+    // as soon as this page is saved again it becomes blocks-based, and the
+    // admin can then rearrange/add blocks around the migrated content.
+    const blocks: CmsBlock[] = (p.blocks && p.blocks.length > 0)
+      ? p.blocks
+      : (p.bodyHtml ? [{ id: genBlockId(), type: 'html', html: p.bodyHtml }] : [])
     setForm({
       slug: p.slug, title: p.title, seoTitle: p.seoTitle || '', seoDesc: p.seoDesc || '',
       tagline: p.tagline || '', heroImage: p.heroImage || '', icon: p.icon || '',
       accentColor: p.accentColor || '#C9A84C', bodyHtml: p.bodyHtml || '',
+      blocks,
       boundCategorySlug: p.boundCategorySlug || '', boundCourseSlug: p.boundCourseSlug || '',
       isPublished: p.isPublished,
     })
@@ -113,7 +129,12 @@ export default function CmsAdminPage() {
       slug: slugify(form.slug || form.title),
       title: form.title, seoTitle: form.seoTitle, seoDesc: form.seoDesc,
       tagline: form.tagline, heroImage: form.heroImage, icon: form.icon,
-      accentColor: form.accentColor, bodyHtml: form.bodyHtml,
+      accentColor: form.accentColor,
+      // bodyHtml is deliberately left out of the payload now — the block
+      // editor is the only way to edit content going forward. On PUT that
+      // means the old value (if any) just sits there unused; on POST it
+      // defaults to '' on the backend. `blocks` is the real content.
+      blocks: form.blocks,
       isPublished: form.isPublished,
       boundCategorySlug: editing ? (categorySlug ?? '') : categorySlug,
       boundCourseSlug:   editing ? (courseSlug ?? '')   : courseSlug,
@@ -209,7 +230,7 @@ export default function CmsAdminPage() {
 
       {showForm && (
         <div className="modal-backdrop" onClick={() => setShowForm(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 640 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 760 }}>
             <h3 style={{ marginBottom: 20 }}>{editing ? 'Edit CMS Page' : 'Add CMS Page'}</h3>
 
             {error && (
@@ -300,12 +321,11 @@ export default function CmsAdminPage() {
 
             <div className="form-group">
               <label>Page Content *</label>
-              <textarea rows={10} value={form.bodyHtml}
-                onChange={e => setForm(f => ({ ...f, bodyHtml: e.target.value }))}
-                placeholder="Write the page content. Basic HTML tags (<p>, <strong>, <h2>, <ul><li>, <br>) are supported for formatting." />
-              <span className="muted" style={{ fontSize: 11 }}>
-                Rendered as-is on the page — you can use simple HTML tags like &lt;p&gt;, &lt;h2&gt;, &lt;strong&gt;, &lt;ul&gt;/&lt;li&gt; to format.
+              <span className="muted" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+                Drag blocks to reorder them. Add images and YouTube videos as their own blocks —
+                video thumbnails are fetched automatically from the URL you paste.
               </span>
+              <BlockEditor blocks={form.blocks} onChange={blocks => setForm(f => ({ ...f, blocks }))} />
             </div>
 
             <div className="form-group">
@@ -330,7 +350,7 @@ export default function CmsAdminPage() {
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
               <button className="btn" onClick={() => setShowForm(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save} disabled={saving || !form.title || !form.bodyHtml}>
+              <button className="btn btn-primary" onClick={save} disabled={saving || !form.title || form.blocks.length === 0}>
                 {saving ? 'Saving...' : editing ? 'Save Changes' : 'Create Page'}
               </button>
             </div>
