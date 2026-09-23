@@ -211,6 +211,51 @@ function CollectionsPicker({
   )
 }
 
+// ── Products multi-select (used by coupon product-scoping) ──────────────────
+
+function ProductsPicker({
+  selected, onChange,
+}: { selected: string[]; onChange: (next: string[]) => void }) {
+  const [products, setProducts] = useState<any[]>(() => getCachedProducts() || [])
+  const [loading, setLoading]   = useState(() => !getCachedProducts())
+  const [search, setSearch]     = useState('')
+
+  useEffect(() => {
+    const cached = getCachedProducts()
+    if (cached) { setProducts(cached); setLoading(false); return }
+    fetchAllProducts().then((items) => setProducts(items)).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
+  }
+
+  const filtered = search
+    ? products.filter((p) => (p.name || '').toLowerCase().includes(search.toLowerCase()))
+    : products
+
+  return (
+    <div>
+      <label>Products <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>({selected.length} selected)</span></label>
+      <input value={search} onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search products…"
+        style={{ marginBottom: 6, padding: '5px 8px', fontSize: 12, border: '1px solid #ddd', borderRadius: 4, width: '100%' }} />
+      <div style={{
+        maxHeight: 180, overflowY: 'auto', border: '1px solid #e5e5e5', borderRadius: 4, padding: 6,
+      }}>
+        {loading ? <div className="muted" style={{ fontSize: 12, padding: 6 }}>Loading products…</div>
+          : filtered.length === 0 ? <div className="muted" style={{ fontSize: 12, padding: 6 }}>No products found.</div>
+          : filtered.map((p) => (
+            <label key={p.id} className="check-row" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 2px', fontSize: 12 }}>
+              <input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} />
+              {p.name}
+            </label>
+          ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Products ─────────────────────────────────────────────────────────────────
 
 const P0 = {
@@ -559,7 +604,14 @@ function Products() {
 }
 
 // ── Coupons ──────────────────────────────────────────────────────────────────
-const C0 = { code:'',discountType:'percentage',discountValue:'',minOrderINR:'',maxUsage:'',expiresAt:'',active:true }
+const C0 = {
+  code:'',discountType:'percentage',discountValue:'',minOrderINR:'',maxUsage:'',expiresAt:'',active:true,
+  // Scoping — 'all' (default) keeps existing behaviour: discount applies
+  // storefront-wide. 'products'/'collections' restrict it.
+  applicableScope: 'all' as 'all' | 'products' | 'collections',
+  applicableProductIds: [] as string[],
+  applicableCollections: [] as string[],
+}
 
 function Coupons() {
   const [list, setList] = useState<any[]>([])
@@ -580,6 +632,12 @@ function Coupons() {
   useEffect(()=>{ load() },[load])
 
   async function save(){
+    if (form.applicableScope === 'products' && form.applicableProductIds.length === 0) {
+      setErr('Pick at least one product, or switch back to All products'); return
+    }
+    if (form.applicableScope === 'collections' && form.applicableCollections.length === 0) {
+      setErr('Pick at least one product type, or switch back to All products'); return
+    }
     setSav(true); setErr('')
     const body = {...form, code:form.code.toUpperCase().trim(),
       discountValue:parseFloat(form.discountValue)||0,
@@ -627,12 +685,19 @@ function Coupons() {
         {busy ? <div className="empty">Loading…</div>
         : list.length===0 ? <div className="empty">No coupons yet.</div>
         : <table>
-            <thead><tr><th>Code</th><th>Discount</th><th>Min Order</th><th>Usage</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Code</th><th>Discount</th><th>Applies to</th><th>Min Order</th><th>Usage</th><th>Expires</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {list.map(c=>(
                 <tr key={c.code}>
                   <td><strong>{c.code}</strong></td>
                   <td>{c.discountType==='percentage'?`${c.discountValue}%`:`₹${c.discountValue}`}</td>
+                  <td className="muted" style={{fontSize:12}}>
+                    {c.applicableScope==='products'
+                      ? `${(c.applicableProductIds||[]).length} product${(c.applicableProductIds||[]).length===1?'':'s'}`
+                      : c.applicableScope==='collections'
+                      ? `${(c.applicableCollections||[]).length} type${(c.applicableCollections||[]).length===1?'':'s'}`
+                      : 'All products'}
+                  </td>
                   <td>{c.minOrderINR?`₹${c.minOrderINR}`:'—'}</td>
                   <td className="muted">{c.usageCount??0}{c.maxUsage?` / ${c.maxUsage}`:''}</td>
                   <td className="muted">{c.expiresAt?c.expiresAt.split('T')[0]:'No expiry'}</td>
@@ -671,6 +736,29 @@ function Coupons() {
                 <div className="fg"><label>Max Uses (blank=unlimited)</label><input type="number" value={form.maxUsage} onChange={e=>f('maxUsage',e.target.value)}/></div>
                 <div className="fg"><label>Expires (blank=never)</label><input type="date" value={form.expiresAt} onChange={e=>f('expiresAt',e.target.value)}/></div>
               </div>
+
+              <div className="fg">
+                <label>Applies to</label>
+                <select value={form.applicableScope} onChange={e=>{
+                  const scope = e.target.value as 'all'|'products'|'collections'
+                  setForm((p:any)=>({ ...p, applicableScope: scope, applicableProductIds: [], applicableCollections: [] }))
+                }}>
+                  <option value="all">All products</option>
+                  <option value="products">Specific products</option>
+                  <option value="collections">Specific product types</option>
+                </select>
+              </div>
+              {form.applicableScope==='products' && (
+                <ProductsPicker
+                  selected={form.applicableProductIds}
+                  onChange={(next)=>f('applicableProductIds', next)} />
+              )}
+              {form.applicableScope==='collections' && (
+                <CollectionsPicker
+                  selected={form.applicableCollections}
+                  onChange={(next)=>f('applicableCollections', next)} />
+              )}
+
               <label className="check-row mt2"><input type="checkbox" checked={form.active} onChange={e=>f('active',e.target.checked)}/> Active immediately</label>
             </div>
             <div className="modal-f">
