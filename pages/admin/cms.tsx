@@ -18,19 +18,12 @@ interface CmsPage {
   accentColor: string
   bodyHtml: string
   boundCategorySlug: string | null
-  boundServiceId: string | null
+  boundCourseSlug: string | null
   isPublished: boolean
   updatedAt?: string
 }
 
-interface Service {
-  id: string
-  name: string
-  category?: string
-  isActive: boolean
-}
-
-type BindType = 'none' | 'category' | 'service'
+type BindType = 'none' | 'category' | 'course'
 
 // Must match the 7 booking-flow category slugs used on the frontend
 // (frontend/lib/serviceCategories.ts) and the page routes under frontend/pages/.
@@ -45,10 +38,21 @@ const CATEGORIES = [
   { slug: 'pendulum-dowsing-gem-stone-counselling', title: 'SoulPath Guidance (Pendulum Dowsing & Gemstone Counselling)' },
 ]
 
+// Courses have no backend record — they're a hardcoded list in
+// frontend/lib/coursesData.ts. Kept in sync with that file by comment, same
+// pattern as CATEGORIES above (admin is a separate app/repo from frontend,
+// so it can't import that file directly).
+const COURSES = [
+  { slug: 'tarot-mastery',        title: 'Tarot Mastery' },
+  { slug: 'psychic-development',  title: 'Psychic Development' },
+  { slug: 'crystal-therapy',      title: 'Crystal Therapy' },
+  { slug: 'spiritual-awareness',  title: 'Spiritual Awareness' },
+]
+
 const EMPTY = {
   slug: '', title: '', seoTitle: '', seoDesc: '', tagline: '',
   heroImage: '', icon: '', accentColor: '#C9A84C', bodyHtml: '',
-  boundCategorySlug: '', boundServiceId: '', isPublished: false,
+  boundCategorySlug: '', boundCourseSlug: '', isPublished: false,
 }
 
 function slugify(s: string) {
@@ -57,7 +61,6 @@ function slugify(s: string) {
 
 export default function CmsAdminPage() {
   const [pages,    setPages]    = useState<CmsPage[]>([])
-  const [services, setServices] = useState<Service[]>([])
   const [loading,  setLoading]  = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing,  setEditing]  = useState<CmsPage | null>(null)
@@ -67,14 +70,9 @@ export default function CmsAdminPage() {
   const [error,    setError]    = useState('')
 
   async function load() {
-    const [pagesRes, servicesRes] = await Promise.all([
-      fetch(`${API}/cms-pages?published_only=false`),
-      fetch(`${API}/services?active_only=false`),
-    ])
-    const pagesData    = await pagesRes.json()
-    const servicesData = await servicesRes.json()
-    setPages(pagesData.pages || [])
-    setServices(servicesData.services || [])
+    const r = await fetch(`${API}/cms-pages?published_only=false`)
+    const d = await r.json()
+    setPages(d.pages || [])
     setLoading(false)
   }
 
@@ -89,10 +87,10 @@ export default function CmsAdminPage() {
       slug: p.slug, title: p.title, seoTitle: p.seoTitle || '', seoDesc: p.seoDesc || '',
       tagline: p.tagline || '', heroImage: p.heroImage || '', icon: p.icon || '',
       accentColor: p.accentColor || '#C9A84C', bodyHtml: p.bodyHtml || '',
-      boundCategorySlug: p.boundCategorySlug || '', boundServiceId: p.boundServiceId || '',
+      boundCategorySlug: p.boundCategorySlug || '', boundCourseSlug: p.boundCourseSlug || '',
       isPublished: p.isPublished,
     })
-    setBindType(p.boundServiceId ? 'service' : p.boundCategorySlug ? 'category' : 'none')
+    setBindType(p.boundCourseSlug ? 'course' : p.boundCategorySlug ? 'category' : 'none')
     setError('')
     setShowForm(true)
   }
@@ -109,7 +107,7 @@ export default function CmsAdminPage() {
     // handlers/cms_pages.py). On create (POST) there's nothing to clear,
     // so a real null is used instead — '' would be stored literally.
     const categorySlug = bindType === 'category' ? (form.boundCategorySlug || null) : null
-    const serviceId     = bindType === 'service'  ? (form.boundServiceId || null)   : null
+    const courseSlug    = bindType === 'course'   ? (form.boundCourseSlug || null)   : null
 
     const payload = {
       slug: slugify(form.slug || form.title),
@@ -118,7 +116,7 @@ export default function CmsAdminPage() {
       accentColor: form.accentColor, bodyHtml: form.bodyHtml,
       isPublished: form.isPublished,
       boundCategorySlug: editing ? (categorySlug ?? '') : categorySlug,
-      boundServiceId:    editing ? (serviceId ?? '')    : serviceId,
+      boundCourseSlug:   editing ? (courseSlug ?? '')   : courseSlug,
     }
     const res = await authedFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     if (!res.ok) {
@@ -149,9 +147,9 @@ export default function CmsAdminPage() {
     return CATEGORIES.find(c => c.slug === slug)?.title || slug
   }
 
-  function serviceName(id: string | null) {
-    if (!id) return null
-    return services.find(s => s.id === id)?.name || '(deleted service)'
+  function courseTitle(slug: string | null) {
+    if (!slug) return null
+    return COURSES.find(c => c.slug === slug)?.title || slug
   }
 
   return (
@@ -162,8 +160,9 @@ export default function CmsAdminPage() {
       </div>
 
       <p style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
-        Static "Know More" pages. Bind a page to a service category to make its Know More button appear
-        on the Services page — the button only shows once a page is both bound and published.
+        Static "Know More" pages. Bind a page to a service category or a course to make its Know More
+        button appear on the Services or Courses page — the button only shows once a page is both
+        bound and published.
       </p>
 
       {loading ? <p style={{ color: '#888' }}>Loading...</p> : pages.length === 0 ? (
@@ -188,11 +187,11 @@ export default function CmsAdminPage() {
                     </a>
                   )}
                 </div>
-                <p style={{ fontSize: 12, color: (p.boundCategorySlug || p.boundServiceId) ? '#C9A84C' : '#dc2626', margin: '4px 0 0' }}>
+                <p style={{ fontSize: 12, color: (p.boundCategorySlug || p.boundCourseSlug) ? '#C9A84C' : '#dc2626', margin: '4px 0 0' }}>
                   {p.boundCategorySlug
                     ? `Bound to category: ${categoryTitle(p.boundCategorySlug)}`
-                    : p.boundServiceId
-                    ? `Bound to service: ${serviceName(p.boundServiceId)}`
+                    : p.boundCourseSlug
+                    ? `Bound to course: ${courseTitle(p.boundCourseSlug)}`
                     : 'Not bound — no Know More button links here'}
                 </p>
               </div>
@@ -239,7 +238,7 @@ export default function CmsAdminPage() {
               <select value={bindType} onChange={e => setBindType(e.target.value as BindType)}>
                 <option value="none">Not bound (no Know More button will link here)</option>
                 <option value="category">A service category (Services page card)</option>
-                <option value="service">A specific service (inside a category's booking list)</option>
+                <option value="course">A course (Courses page card)</option>
               </select>
             </div>
 
@@ -259,22 +258,18 @@ export default function CmsAdminPage() {
               </div>
             )}
 
-            {bindType === 'service' && (
+            {bindType === 'course' && (
               <div className="form-group">
-                <label>Service</label>
-                <select value={form.boundServiceId} onChange={e => setForm(f => ({ ...f, boundServiceId: e.target.value }))}>
-                  <option value="">— Choose a service —</option>
-                  {services.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}{s.category ? ` (${CATEGORIES.find(c => c.slug === s.category)?.title || s.category})` : ' (uncategorized)'}
-                      {!s.isActive ? ' — inactive' : ''}
-                    </option>
+                <label>Course</label>
+                <select value={form.boundCourseSlug} onChange={e => setForm(f => ({ ...f, boundCourseSlug: e.target.value }))}>
+                  <option value="">— Choose a course —</option>
+                  {COURSES.map(c => (
+                    <option key={c.slug} value={c.slug}>{c.title}</option>
                   ))}
                 </select>
                 <span className="muted" style={{ fontSize: 11 }}>
-                  Shows a Know More button on this specific service's card, inside its category's
-                  booking list — separate from the category-level Know More button above.
-                  Only one page should be bound per service.
+                  Shows a Know More button on this course's card on the Courses page, alongside its
+                  existing "View Details" button. Only one page should be bound per course.
                 </span>
               </div>
             )}
