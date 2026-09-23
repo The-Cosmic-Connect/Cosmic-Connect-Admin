@@ -1,0 +1,272 @@
+import { useState, useEffect } from 'react'
+import Shell from '@/components/Shell'
+import { Plus, Edit2, Trash2, Layers, ExternalLink } from 'lucide-react'
+import { authedFetch } from '@/lib/auth'
+
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.arkasuryacrystals.com'
+
+interface CmsPage {
+  id: string
+  slug: string
+  title: string
+  seoTitle: string
+  seoDesc: string
+  tagline: string
+  heroImage: string
+  icon: string
+  accentColor: string
+  bodyHtml: string
+  boundCategorySlug: string | null
+  isPublished: boolean
+  updatedAt?: string
+}
+
+// Must match the 7 booking-flow category slugs used on the frontend
+// (frontend/lib/serviceCategories.ts) and the page routes under frontend/pages/.
+// Same list admin/pages/admin/services.tsx uses for the "Booking Category" field.
+const CATEGORIES = [
+  { slug: 'tarot-reading-services',                title: "Unlock Life's Mysteries (Tarot Reading)" },
+  { slug: 'akashic-mokshapat-pastlife',             title: 'Soul Legacy Healing (Akashic, Mokshapat & Past Life)' },
+  { slug: 'reiki-crystal-photo-healing',            title: 'Energy Healing Modalities (Reiki, Crystal & Photo Healing)' },
+  { slug: 'sound-healing-services',                 title: 'Sound Healing' },
+  { slug: 'black-magic-evil-eye-removal',           title: 'Shielding from Dark Energies (Black Magic & Evil Eye Removal)' },
+  { slug: 'crystal-grids',                          title: 'Sacred Crystal Alchemy (Crystal Grids)' },
+  { slug: 'pendulum-dowsing-gem-stone-counselling', title: 'SoulPath Guidance (Pendulum Dowsing & Gemstone Counselling)' },
+]
+
+const EMPTY = {
+  slug: '', title: '', seoTitle: '', seoDesc: '', tagline: '',
+  heroImage: '', icon: '', accentColor: '#C9A84C', bodyHtml: '',
+  boundCategorySlug: '', isPublished: false,
+}
+
+function slugify(s: string) {
+  return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+}
+
+export default function CmsAdminPage() {
+  const [pages,    setPages]    = useState<CmsPage[]>([])
+  const [loading,  setLoading]  = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [editing,  setEditing]  = useState<CmsPage | null>(null)
+  const [form,     setForm]     = useState(EMPTY)
+  const [saving,   setSaving]   = useState(false)
+  const [error,    setError]    = useState('')
+
+  async function load() {
+    const r = await fetch(`${API}/cms-pages?published_only=false`)
+    const d = await r.json()
+    setPages(d.pages || [])
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  function openCreate() { setEditing(null); setForm(EMPTY); setError(''); setShowForm(true) }
+  function openEdit(p: CmsPage) {
+    setEditing(p)
+    setForm({
+      slug: p.slug, title: p.title, seoTitle: p.seoTitle || '', seoDesc: p.seoDesc || '',
+      tagline: p.tagline || '', heroImage: p.heroImage || '', icon: p.icon || '',
+      accentColor: p.accentColor || '#C9A84C', bodyHtml: p.bodyHtml || '',
+      boundCategorySlug: p.boundCategorySlug || '', isPublished: p.isPublished,
+    })
+    setError('')
+    setShowForm(true)
+  }
+
+  async function save() {
+    setSaving(true); setError('')
+    const url    = editing ? `${API}/cms-pages/${editing.id}` : `${API}/cms-pages`
+    const method = editing ? 'PUT' : 'POST'
+    const payload = {
+      ...form,
+      slug: slugify(form.slug || form.title),
+      boundCategorySlug: form.boundCategorySlug || null,
+    }
+    const res = await authedFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setError(d.detail || 'Failed to save — check the slug isn\'t already used.')
+      setSaving(false)
+      return
+    }
+    setSaving(false); setShowForm(false); load()
+  }
+
+  async function togglePublished(p: CmsPage) {
+    await authedFetch(`${API}/cms-pages/${p.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isPublished: !p.isPublished }),
+    })
+    load()
+  }
+
+  async function remove(id: string) {
+    if (!confirm('Delete this CMS page? Any "Know More" button bound to it will disappear from the site.')) return
+    await authedFetch(`${API}/cms-pages/${id}`, { method: 'DELETE' })
+    load()
+  }
+
+  function categoryTitle(slug: string | null) {
+    if (!slug) return null
+    return CATEGORIES.find(c => c.slug === slug)?.title || slug
+  }
+
+  return (
+    <Shell title="CMS">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>CMS Pages</h2>
+        <button className="btn btn-primary" onClick={openCreate}><Plus size={14} /> Add Page</button>
+      </div>
+
+      <p style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
+        Static "Know More" pages. Bind a page to a service category to make its Know More button appear
+        on the Services page — the button only shows once a page is both bound and published.
+      </p>
+
+      {loading ? <p style={{ color: '#888' }}>Loading...</p> : pages.length === 0 ? (
+        <div className="empty-state">No CMS pages yet. Add one to get started.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {pages.map(p => (
+            <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px' }}>
+              <Layers size={16} style={{ color: '#444', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{p.title}</span>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                    background: p.isPublished ? '#16a34a22' : '#dc262622',
+                    color: p.isPublished ? '#4ade80' : '#f87171' }}>
+                    {p.isPublished ? 'Published' : 'Draft'}
+                  </span>
+                  {p.isPublished && (
+                    <a href={`${SITE_URL}/learn/${p.slug}`} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 11, color: '#C9A84C', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                      /learn/{p.slug} <ExternalLink size={10} />
+                    </a>
+                  )}
+                </div>
+                <p style={{ fontSize: 12, color: p.boundCategorySlug ? '#C9A84C' : '#dc2626', margin: '4px 0 0' }}>
+                  {p.boundCategorySlug ? `Bound to: ${categoryTitle(p.boundCategorySlug)}` : 'Not bound — no Know More button links here'}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-s" onClick={() => togglePublished(p)}>
+                  {p.isPublished ? 'Unpublish' : 'Publish'}
+                </button>
+                <button className="btn btn-s" onClick={() => openEdit(p)}><Edit2 size={12} /></button>
+                <button className="btn btn-s btn-danger" onClick={() => remove(p.id)}><Trash2 size={12} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="modal-backdrop" onClick={() => setShowForm(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 640 }}>
+            <h3 style={{ marginBottom: 20 }}>{editing ? 'Edit CMS Page' : 'Add CMS Page'}</h3>
+
+            {error && (
+              <div style={{ background: '#dc262622', color: '#f87171', padding: '8px 12px', borderRadius: 6, fontSize: 12, marginBottom: 16 }}>
+                {error}
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Page Title *</label>
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="e.g. Tarot Reading — Unlock Life's Mysteries" />
+            </div>
+
+            <div className="form-group">
+              <label>URL Slug</label>
+              <input value={form.slug} onChange={e => setForm(f => ({ ...f, slug: e.target.value }))}
+                placeholder="auto-generated from title if left blank" />
+              <span className="muted" style={{ fontSize: 11 }}>
+                Page will live at {SITE_URL}/learn/{slugify(form.slug || form.title) || '<slug>'}
+              </span>
+            </div>
+
+            <div className="form-group">
+              <label>Bind to Service Category</label>
+              <select value={form.boundCategorySlug} onChange={e => setForm(f => ({ ...f, boundCategorySlug: e.target.value }))}>
+                <option value="">— Not bound (no Know More button will link here) —</option>
+                {CATEGORIES.map(c => (
+                  <option key={c.slug} value={c.slug}>{c.title}</option>
+                ))}
+              </select>
+              <span className="muted" style={{ fontSize: 11 }}>
+                Only one page should be bound per category — binding a second page to the same
+                category takes over that category's Know More button.
+              </span>
+            </div>
+
+            <div className="form-group">
+              <label>Tagline</label>
+              <input value={form.tagline} onChange={e => setForm(f => ({ ...f, tagline: e.target.value }))}
+                placeholder="Short italic line shown under the page title" />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="form-group">
+                <label>Icon (emoji, optional)</label>
+                <input value={form.icon} onChange={e => setForm(f => ({ ...f, icon: e.target.value }))} placeholder="🃏" />
+              </div>
+              <div className="form-group">
+                <label>Accent Color</label>
+                <input type="color" value={form.accentColor} style={{ height: 38, padding: 2 }}
+                  onChange={e => setForm(f => ({ ...f, accentColor: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Hero Image URL (optional)</label>
+              <input value={form.heroImage} onChange={e => setForm(f => ({ ...f, heroImage: e.target.value }))}
+                placeholder="https://..." />
+            </div>
+
+            <div className="form-group">
+              <label>Page Content *</label>
+              <textarea rows={10} value={form.bodyHtml}
+                onChange={e => setForm(f => ({ ...f, bodyHtml: e.target.value }))}
+                placeholder="Write the page content. Basic HTML tags (<p>, <strong>, <h2>, <ul><li>, <br>) are supported for formatting." />
+              <span className="muted" style={{ fontSize: 11 }}>
+                Rendered as-is on the page — you can use simple HTML tags like &lt;p&gt;, &lt;h2&gt;, &lt;strong&gt;, &lt;ul&gt;/&lt;li&gt; to format.
+              </span>
+            </div>
+
+            <div className="form-group">
+              <label>SEO Title (optional)</label>
+              <input value={form.seoTitle} onChange={e => setForm(f => ({ ...f, seoTitle: e.target.value }))}
+                placeholder="Defaults to page title if left blank" />
+            </div>
+
+            <div className="form-group">
+              <label>SEO Description (optional)</label>
+              <textarea rows={2} value={form.seoDesc} onChange={e => setForm(f => ({ ...f, seoDesc: e.target.value }))}
+                placeholder="Defaults to tagline if left blank" />
+            </div>
+
+            <div className="form-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.isPublished}
+                  onChange={e => setForm(f => ({ ...f, isPublished: e.target.checked }))} />
+                Published (visible on the live site)
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving || !form.title || !form.bodyHtml}>
+                {saving ? 'Saving...' : editing ? 'Save Changes' : 'Create Page'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Shell>
+  )
+}

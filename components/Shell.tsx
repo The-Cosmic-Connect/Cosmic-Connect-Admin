@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import Link from 'next/link'
 import {
   ShoppingBag, FileText, Inbox, Settings, LayoutDashboard,
-  LogOut, ExternalLink, Users, Calendar, Briefcase, Megaphone, GalleryHorizontal
+  LogOut, ExternalLink, Users, Calendar, Briefcase, Megaphone, GalleryHorizontal, Layers
 } from 'lucide-react'
 import { isAuthed, clearSession } from '@/lib/auth'
 
@@ -13,6 +13,7 @@ const NAV = [
   { href: '/admin/agents',        icon: Users,             label: 'Agents' },
   { href: '/admin/services',      icon: Briefcase,         label: 'Services' },
   { href: '/admin/bookings',      icon: Calendar,          label: 'Bookings' },
+  { href: '/admin/cms',           icon: Layers,            label: 'CMS' },
   { href: '/admin/carousel',      icon: GalleryHorizontal, label: 'Carousel' },
   { href: '/admin/announcements', icon: Megaphone,         label: 'Announcements' },
   { href: '/admin/blog',          icon: FileText,          label: 'Blog' },
