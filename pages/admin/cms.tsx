@@ -18,9 +18,19 @@ interface CmsPage {
   accentColor: string
   bodyHtml: string
   boundCategorySlug: string | null
+  boundServiceId: string | null
   isPublished: boolean
   updatedAt?: string
 }
+
+interface Service {
+  id: string
+  name: string
+  category?: string
+  isActive: boolean
+}
+
+type BindType = 'none' | 'category' | 'service'
 
 // Must match the 7 booking-flow category slugs used on the frontend
 // (frontend/lib/serviceCategories.ts) and the page routes under frontend/pages/.
@@ -38,7 +48,7 @@ const CATEGORIES = [
 const EMPTY = {
   slug: '', title: '', seoTitle: '', seoDesc: '', tagline: '',
   heroImage: '', icon: '', accentColor: '#C9A84C', bodyHtml: '',
-  boundCategorySlug: '', isPublished: false,
+  boundCategorySlug: '', boundServiceId: '', isPublished: false,
 }
 
 function slugify(s: string) {
@@ -47,31 +57,42 @@ function slugify(s: string) {
 
 export default function CmsAdminPage() {
   const [pages,    setPages]    = useState<CmsPage[]>([])
+  const [services, setServices] = useState<Service[]>([])
   const [loading,  setLoading]  = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing,  setEditing]  = useState<CmsPage | null>(null)
   const [form,     setForm]     = useState(EMPTY)
+  const [bindType, setBindType] = useState<BindType>('none')
   const [saving,   setSaving]   = useState(false)
   const [error,    setError]    = useState('')
 
   async function load() {
-    const r = await fetch(`${API}/cms-pages?published_only=false`)
-    const d = await r.json()
-    setPages(d.pages || [])
+    const [pagesRes, servicesRes] = await Promise.all([
+      fetch(`${API}/cms-pages?published_only=false`),
+      fetch(`${API}/services?active_only=false`),
+    ])
+    const pagesData    = await pagesRes.json()
+    const servicesData = await servicesRes.json()
+    setPages(pagesData.pages || [])
+    setServices(servicesData.services || [])
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
-  function openCreate() { setEditing(null); setForm(EMPTY); setError(''); setShowForm(true) }
+  function openCreate() {
+    setEditing(null); setForm(EMPTY); setBindType('none'); setError(''); setShowForm(true)
+  }
   function openEdit(p: CmsPage) {
     setEditing(p)
     setForm({
       slug: p.slug, title: p.title, seoTitle: p.seoTitle || '', seoDesc: p.seoDesc || '',
       tagline: p.tagline || '', heroImage: p.heroImage || '', icon: p.icon || '',
       accentColor: p.accentColor || '#C9A84C', bodyHtml: p.bodyHtml || '',
-      boundCategorySlug: p.boundCategorySlug || '', isPublished: p.isPublished,
+      boundCategorySlug: p.boundCategorySlug || '', boundServiceId: p.boundServiceId || '',
+      isPublished: p.isPublished,
     })
+    setBindType(p.boundServiceId ? 'service' : p.boundCategorySlug ? 'category' : 'none')
     setError('')
     setShowForm(true)
   }
@@ -80,10 +101,24 @@ export default function CmsAdminPage() {
     setSaving(true); setError('')
     const url    = editing ? `${API}/cms-pages/${editing.id}` : `${API}/cms-pages`
     const method = editing ? 'PUT' : 'POST'
+
+    // Only one binding type is active at a time — whichever the "Bind To"
+    // selector is on. On edit (PUT), a cleared field must be sent as ''
+    // rather than omitted/null, since the backend's "only touch what's
+    // sent" convention would otherwise silently ignore an unbind (see
+    // handlers/cms_pages.py). On create (POST) there's nothing to clear,
+    // so a real null is used instead — '' would be stored literally.
+    const categorySlug = bindType === 'category' ? (form.boundCategorySlug || null) : null
+    const serviceId     = bindType === 'service'  ? (form.boundServiceId || null)   : null
+
     const payload = {
-      ...form,
       slug: slugify(form.slug || form.title),
-      boundCategorySlug: form.boundCategorySlug || null,
+      title: form.title, seoTitle: form.seoTitle, seoDesc: form.seoDesc,
+      tagline: form.tagline, heroImage: form.heroImage, icon: form.icon,
+      accentColor: form.accentColor, bodyHtml: form.bodyHtml,
+      isPublished: form.isPublished,
+      boundCategorySlug: editing ? (categorySlug ?? '') : categorySlug,
+      boundServiceId:    editing ? (serviceId ?? '')    : serviceId,
     }
     const res = await authedFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     if (!res.ok) {
@@ -112,6 +147,11 @@ export default function CmsAdminPage() {
   function categoryTitle(slug: string | null) {
     if (!slug) return null
     return CATEGORIES.find(c => c.slug === slug)?.title || slug
+  }
+
+  function serviceName(id: string | null) {
+    if (!id) return null
+    return services.find(s => s.id === id)?.name || '(deleted service)'
   }
 
   return (
@@ -148,8 +188,12 @@ export default function CmsAdminPage() {
                     </a>
                   )}
                 </div>
-                <p style={{ fontSize: 12, color: p.boundCategorySlug ? '#C9A84C' : '#dc2626', margin: '4px 0 0' }}>
-                  {p.boundCategorySlug ? `Bound to: ${categoryTitle(p.boundCategorySlug)}` : 'Not bound — no Know More button links here'}
+                <p style={{ fontSize: 12, color: (p.boundCategorySlug || p.boundServiceId) ? '#C9A84C' : '#dc2626', margin: '4px 0 0' }}>
+                  {p.boundCategorySlug
+                    ? `Bound to category: ${categoryTitle(p.boundCategorySlug)}`
+                    : p.boundServiceId
+                    ? `Bound to service: ${serviceName(p.boundServiceId)}`
+                    : 'Not bound — no Know More button links here'}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -191,18 +235,49 @@ export default function CmsAdminPage() {
             </div>
 
             <div className="form-group">
-              <label>Bind to Service Category</label>
-              <select value={form.boundCategorySlug} onChange={e => setForm(f => ({ ...f, boundCategorySlug: e.target.value }))}>
-                <option value="">— Not bound (no Know More button will link here) —</option>
-                {CATEGORIES.map(c => (
-                  <option key={c.slug} value={c.slug}>{c.title}</option>
-                ))}
+              <label>Bind To</label>
+              <select value={bindType} onChange={e => setBindType(e.target.value as BindType)}>
+                <option value="none">Not bound (no Know More button will link here)</option>
+                <option value="category">A service category (Services page card)</option>
+                <option value="service">A specific service (inside a category's booking list)</option>
               </select>
-              <span className="muted" style={{ fontSize: 11 }}>
-                Only one page should be bound per category — binding a second page to the same
-                category takes over that category's Know More button.
-              </span>
             </div>
+
+            {bindType === 'category' && (
+              <div className="form-group">
+                <label>Service Category</label>
+                <select value={form.boundCategorySlug} onChange={e => setForm(f => ({ ...f, boundCategorySlug: e.target.value }))}>
+                  <option value="">— Choose a category —</option>
+                  {CATEGORIES.map(c => (
+                    <option key={c.slug} value={c.slug}>{c.title}</option>
+                  ))}
+                </select>
+                <span className="muted" style={{ fontSize: 11 }}>
+                  Only one page should be bound per category — binding a second page to the same
+                  category takes over that category's Know More button.
+                </span>
+              </div>
+            )}
+
+            {bindType === 'service' && (
+              <div className="form-group">
+                <label>Service</label>
+                <select value={form.boundServiceId} onChange={e => setForm(f => ({ ...f, boundServiceId: e.target.value }))}>
+                  <option value="">— Choose a service —</option>
+                  {services.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}{s.category ? ` (${CATEGORIES.find(c => c.slug === s.category)?.title || s.category})` : ' (uncategorized)'}
+                      {!s.isActive ? ' — inactive' : ''}
+                    </option>
+                  ))}
+                </select>
+                <span className="muted" style={{ fontSize: 11 }}>
+                  Shows a Know More button on this specific service's card, inside its category's
+                  booking list — separate from the category-level Know More button above.
+                  Only one page should be bound per service.
+                </span>
+              </div>
+            )}
 
             <div className="form-group">
               <label>Tagline</label>
