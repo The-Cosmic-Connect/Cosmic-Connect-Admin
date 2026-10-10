@@ -6,7 +6,7 @@ import BlockEditor from '@/components/cms/BlockEditor'
 import { type CmsBlock, genBlockId } from '@/components/cms/blockTypes'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.arkasuryacrystals.com'
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.thecosmicconnect.com'
 
 interface CmsPage {
   id: string

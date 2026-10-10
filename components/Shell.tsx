@@ -54,7 +54,7 @@ export default function Shell({ children, title }: { children: React.ReactNode; 
       <div className="main">
         <div className="topbar">
           <span style={{ fontWeight: 600, fontSize: 13 }}>{title}</span>
-          <a href="https://www.arkasuryacrystals.com" target="_blank" rel="noopener noreferrer"
+          <a href="https://www.thecosmicconnect.com" target="_blank" rel="noopener noreferrer"
             className="btn btn-s btn-sm flex gap2">
             <ExternalLink size={12} /> View Site
           </a>
