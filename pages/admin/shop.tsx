@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, X, Upload, Image as ImageIcon } from 'lucide-reac
 import { fetchAllProducts, getCachedProducts, invalidateProductsCache,
          upsertProductInCache, removeProductFromCache } from '@/lib/fetchProducts'
 import { authedFetch } from '@/lib/auth'
+import RefundPanel from '@/components/RefundPanel'
 import { uploadImage } from '@/lib/uploadImage'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -729,19 +730,23 @@ function Coupons() {
 function Orders() {
   const [list, setList] = useState<any[]>([])
   const [busy, setBusy] = useState(true)
+  const [selected, setSelected] = useState<any | null>(null)
+  const [cancelling, setCancelling] = useState(false)
+  const [err, setErr] = useState('')
 
-  useEffect(()=>{
+  function load() {
     // Admin-only — must carry the JWT.
-    authedFetch(`${API}/orders`).then(r=>r.json())
+    return authedFetch(`${API}/orders`).then(r=>r.json())
       .then(d=>{ setList(Array.isArray(d)?d:d.orders||[]); setBusy(false) })
       .catch(()=>setBusy(false))
-  },[])
+  }
+  useEffect(()=>{ load() },[])
 
   const STATUS_COLOR: Record<string,string> = {
-    paid:'b-g', pending:'b-y', failed:'b-r', refunded:'b-u'
+    paid:'b-g', pending:'b-y', failed:'b-r', refunded:'b-u', cancelled:'b-r'
   }
 
-  // Backend stores totalINR for PhonePe orders and totalUSD for PayPal.
+  // Backend stores totalINR for PhonePe/Cashfree orders and totalUSD for PayPal.
   // Pick whichever is present so the column is always populated.
   function formatAmount(o: any): string {
     const inrCandidate = o.totalINR ?? (o.currency === 'INR' ? o.total : undefined)
@@ -755,6 +760,18 @@ function Orders() {
     return '—'
   }
 
+  async function cancelOrder(o: any) {
+    if (!confirm('Cancel this order? The customer will be emailed. To refund the payment, use "Initiate Refund" on the cancelled order afterwards.')) return
+    setCancelling(true); setErr('')
+    const res = await authedFetch(`${API}/orders/${o.id}/cancel`, { method: 'POST' })
+    const data = await res.json().catch(()=>({}))
+    setCancelling(false)
+    if (!res.ok) { setErr(typeof data.detail === 'string' ? data.detail : 'Could not cancel the order'); return }
+    setSelected(data); load()
+  }
+
+  const refundable = (o: any) => o.status==='cancelled' && o.gateway==='cashfree' && !!o.paidAt
+
   return (
     <div>
       <div className="ph"><div><h1>Orders</h1><p>{list.length} total</p></div></div>
@@ -762,7 +779,7 @@ function Orders() {
         {busy ? <div className="empty">Loading…</div>
         : list.length===0 ? <div className="empty">No orders yet.</div>
         : <table>
-            <thead><tr><th>Order ID</th><th>Customer</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+            <thead><tr><th>Order ID</th><th>Customer</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr></thead>
             <tbody>
               {list.map(o=>(
                 <tr key={o.id}>
@@ -774,12 +791,72 @@ function Orders() {
                   <td>{formatAmount(o)}</td>
                   <td><span className={`b ${STATUS_COLOR[o.status]||'b-n'}`}>{o.status}</span></td>
                   <td className="muted">{o.createdAt?o.createdAt.split('T')[0]:'—'}</td>
+                  <td><button className="btn btn-s btn-sm" onClick={()=>{ setErr(''); setSelected(o) }}>View</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         }
       </div>
+
+      {selected && (
+        <div className="modal-overlay" onClick={()=>setSelected(null)}>
+          <div className="modal" style={{maxWidth:560}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Order Details</h3>
+              <button onClick={()=>setSelected(null)}><X size={18}/></button>
+            </div>
+            <div className="modal-body" style={{display:'flex',flexDirection:'column',gap:12}}>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <span className={`b ${STATUS_COLOR[selected.status]||'b-n'}`}>{selected.status}</span>
+                <span className="muted" style={{fontFamily:'monospace',fontSize:12}}>{selected.id}</span>
+              </div>
+              {[
+                { l:'Customer', v:[selected.customerName, selected.customerEmail, selected.customerPhone].filter(Boolean).join(' · ') || '—' },
+                { l:'Amount',   v:formatAmount(selected) },
+                { l:'Gateway',  v:selected.gateway || '—' },
+                { l:'Coupon',   v:selected.coupon || '—' },
+                { l:'Ordered',  v:selected.createdAt ? new Date(selected.createdAt+'Z').toLocaleString('en-IN') : '—' },
+                ...(selected.refundedINR ? [{ l:'Refunded', v:'₹'+selected.refundedINR.toLocaleString('en-IN') }] : []),
+              ].map(r=>(
+                <div key={r.l} style={{display:'flex',gap:12}}>
+                  <span className="muted" style={{width:90,flexShrink:0,fontSize:12}}>{r.l}</span>
+                  <span style={{fontSize:13}}>{r.v}</span>
+                </div>
+              ))}
+              <div>
+                <div className="muted" style={{fontSize:12,marginBottom:4}}>Items</div>
+                {(selected.items||[]).map((it:any,i:number)=>(
+                  <div key={i} style={{fontSize:13,padding:'2px 0'}}>{it.name} × {it.quantity}</div>
+                ))}
+              </div>
+
+              <RefundPanel
+                endpoint={`${API}/orders/${selected.id}`}
+                paid={selected.currency==='USD' ? 0 : (selected.totalINR||0)}
+                refunds={selected.refunds}
+                enabled={refundable(selected)}
+                disabledReason={
+                  selected.status==='refunded' ? 'Fully refunded'
+                  : selected.status!=='cancelled' ? 'Available once the order is cancelled'
+                  : selected.gateway!=='cashfree' ? `Refund this ${selected.gateway||'other'} payment from its own dashboard`
+                  : 'No payment recorded for this order'}
+                defaultNote="Order cancelled"
+                onUpdated={(o:any)=>{ setSelected(o); load() }}
+              />
+              {err && <p style={{color:'#dc2626',fontSize:12}}>{err}</p>}
+            </div>
+            <div className="modal-footer">
+              <button className="btn" onClick={()=>setSelected(null)}>Close</button>
+              {selected.status==='paid' && (
+                <button className="btn btn-danger" onClick={()=>cancelOrder(selected)} disabled={cancelling}>
+                  {cancelling ? 'Cancelling…' : 'Cancel Order'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Shell from '@/components/Shell'
 import { Calendar, Clock, User, Video, X, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
 import { authedFetch } from '@/lib/auth'
+import RefundPanel, { RefundEntry } from '@/components/RefundPanel'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -12,6 +13,7 @@ interface Booking {
   priceINR: number; priceUSD: number; currency: string
   status: string; meetLink: string; paymentId: string
   createdAt: string
+  refunds?: RefundEntry[]; refundedAmount?: number
 }
 interface Agent   { id: string; name: string }
 interface Service { id: string; name: string }
@@ -54,7 +56,7 @@ export default function BookingsPage() {
   useEffect(() => { load() }, [filterAgent, filterStatus])
 
   async function cancelBooking(bookingId: string) {
-    if (!confirm('Cancel this booking? A refund will need to be processed manually.')) return
+    if (!confirm('Cancel this booking? The customer will be emailed. To refund the payment, use "Initiate Refund" on the cancelled booking afterwards.')) return
     setCancelling(true)
     // Admin-only write — must carry the JWT.
     await authedFetch(`${API}/bookings/${bookingId}/cancel`, { method: 'POST' })
@@ -201,6 +203,7 @@ export default function BookingsPage() {
                 { label: 'Time',      value: `${selected.startTime} – ${selected.endTime} IST` },
                 { label: 'Amount',    value: selected.currency === 'INR' ? `₹${selected.priceINR}` : `$${selected.priceUSD}` },
                 { label: 'Payment ID', value: selected.paymentId || '—' },
+                ...(selected.refundedAmount ? [{ label: 'Refunded', value: `₹${selected.refundedAmount}` }] : []),
                 { label: 'Booked At', value: new Date(selected.createdAt).toLocaleString('en-IN') },
               ].map(row => (
                 <div key={row.label} style={{ display: 'flex', gap: 12 }}>
@@ -218,6 +221,20 @@ export default function BookingsPage() {
                   </a>
                 </div>
               )}
+
+              <RefundPanel
+                endpoint={`${API}/bookings/${selected.id}`}
+                paid={selected.currency === 'INR' ? selected.priceINR : 0}
+                refunds={selected.refunds}
+                enabled={selected.status === 'cancelled' && selected.currency === 'INR' && !!selected.paymentId}
+                disabledReason={
+                  selected.status === 'refunded' ? 'Fully refunded'
+                  : selected.status !== 'cancelled' ? 'Available once the booking is cancelled'
+                  : selected.currency !== 'INR' ? 'Automatic refunds support INR (Cashfree) bookings only'
+                  : 'No payment recorded for this booking'}
+                defaultNote="Booking cancelled"
+                onUpdated={(b: Booking) => { setSelected(b); load() }}
+              />
             </div>
             <div className="modal-footer">
               <button className="btn" onClick={() => setSelected(null)}>Close</button>
