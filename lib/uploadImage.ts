@@ -43,15 +43,17 @@ export async function uploadImage(file: File): Promise<string> {
   const signRes = await authedFetch(`${API}/uploads/sign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename, contentType, size: blob.size }),
+    body: JSON.stringify({ filename, contentType, size: blob.size, cacheControl: true }),
   })
   if (!signRes.ok) throw new Error(`Sign failed: ${await signRes.text()}`)
-  const { uploadUrl, publicUrl } = await signRes.json()
+  // cacheControl is only returned by a backend that signed it into the URL;
+  // the header must then be sent on the PUT or S3 rejects the signature.
+  const { uploadUrl, publicUrl, cacheControl } = await signRes.json()
   // The actual S3 PUT uses the presigned URL itself as auth — no JWT needed
   // (and S3 would reject an unexpected Authorization header anyway).
   const putRes = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: { 'Content-Type': contentType },
+    headers: { 'Content-Type': contentType, ...(cacheControl ? { 'Cache-Control': cacheControl } : {}) },
     body: blob,
   })
   if (!putRes.ok) throw new Error(`S3 upload failed (${putRes.status})`)
