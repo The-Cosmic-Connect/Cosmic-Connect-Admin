@@ -6,6 +6,7 @@ import { fetchAllProducts, getCachedProducts, invalidateProductsCache,
          upsertProductInCache, removeProductFromCache } from '@/lib/fetchProducts'
 import { authedFetch } from '@/lib/auth'
 import RefundPanel from '@/components/RefundPanel'
+import FulfillmentPanel, { STATUS_LABEL, STATUS_COLOR } from '@/components/FulfillmentPanel'
 import { uploadImage } from '@/lib/uploadImage'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -733,6 +734,7 @@ function Orders() {
   const [selected, setSelected] = useState<any | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [err, setErr] = useState('')
+  const [filter, setFilter] = useState('')
 
   function load() {
     // Admin-only — must carry the JWT.
@@ -742,8 +744,16 @@ function Orders() {
   }
   useEffect(()=>{ load() },[])
 
-  const STATUS_COLOR: Record<string,string> = {
-    paid:'b-g', pending:'b-y', failed:'b-r', refunded:'b-u', cancelled:'b-r'
+  const statusText = (s: string) => STATUS_LABEL[s] || s
+  // "To ship" = paid or packed (new orders waiting to go out).
+  const shown = list.filter(o =>
+    !filter ? true
+    : filter==='to_ship' ? ['paid','packed'].includes(o.status)
+    : filter==='disputed' ? !!o.shipment?.disputed
+    : o.status===filter)
+  const addressText = (o: any) => {
+    const a = o.shippingAddress || {}
+    return [a.address, a.city, a.state, a.pincode, a.country].filter((x: any) => x && String(x).trim()).join(', ')
   }
 
   // Backend stores totalINR for PhonePe/Cashfree orders and totalUSD for PayPal.
@@ -774,14 +784,23 @@ function Orders() {
 
   return (
     <div>
-      <div className="ph"><div><h1>Orders</h1><p>{list.length} total</p></div></div>
+      <div className="ph">
+        <div><h1>Orders</h1><p>{shown.length}{filter ? ` of ${list.length}` : ''} orders</p></div>
+        <select value={filter} onChange={e=>setFilter(e.target.value)} style={{maxWidth:220}}>
+          <option value="">All orders</option>
+          <option value="to_ship">To ship (paid / packed)</option>
+          <option value="disputed">Disputed</option>
+          {['paid','packed','dispatched','in_transit','out_for_delivery','delivered','returned','cancelled','refunded','pending','failed']
+            .map(s=><option key={s} value={s}>{statusText(s)}</option>)}
+        </select>
+      </div>
       <div className="card">
         {busy ? <div className="empty">Loading…</div>
-        : list.length===0 ? <div className="empty">No orders yet.</div>
+        : shown.length===0 ? <div className="empty">{list.length ? 'No orders match this filter.' : 'No orders yet.'}</div>
         : <table>
             <thead><tr><th>Order ID</th><th>Customer</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr></thead>
             <tbody>
-              {list.map(o=>(
+              {shown.map(o=>(
                 <tr key={o.id}>
                   <td className="muted" style={{fontFamily:'monospace',fontSize:12}}>{o.id?.slice(-8)}</td>
                   <td>
@@ -789,7 +808,10 @@ function Orders() {
                     <div className="muted">{o.customerEmail}</div>
                   </td>
                   <td>{formatAmount(o)}</td>
-                  <td><span className={`b ${STATUS_COLOR[o.status]||'b-n'}`}>{o.status}</span></td>
+                  <td>
+                    <span className={`b ${STATUS_COLOR[o.status]||'b-n'}`}>{statusText(o.status)}</span>
+                    {o.shipment?.disputed && <span className="b b-r" style={{marginLeft:4}}>Disputed</span>}
+                  </td>
                   <td className="muted">{o.createdAt?o.createdAt.split('T')[0]:'—'}</td>
                   <td><button className="btn btn-s btn-sm" onClick={()=>{ setErr(''); setSelected(o) }}>View</button></td>
                 </tr>
@@ -801,18 +823,19 @@ function Orders() {
 
       {selected && (
         <div className="modal-overlay" onClick={()=>setSelected(null)}>
-          <div className="modal" style={{maxWidth:560}} onClick={e=>e.stopPropagation()}>
+          <div className="modal" style={{maxWidth:640}} onClick={e=>e.stopPropagation()}>
             <div className="modal-header">
               <h3>Order Details</h3>
               <button onClick={()=>setSelected(null)}><X size={18}/></button>
             </div>
             <div className="modal-body" style={{display:'flex',flexDirection:'column',gap:12}}>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <span className={`b ${STATUS_COLOR[selected.status]||'b-n'}`}>{selected.status}</span>
+                <span className={`b ${STATUS_COLOR[selected.status]||'b-n'}`}>{statusText(selected.status)}</span>
                 <span className="muted" style={{fontFamily:'monospace',fontSize:12}}>{selected.id}</span>
               </div>
               {[
                 { l:'Customer', v:[selected.customerName, selected.customerEmail, selected.customerPhone].filter(Boolean).join(' · ') || '—' },
+                { l:'Ship to',  v:addressText(selected) || 'Not recorded (older order — check with the customer)' },
                 { l:'Amount',   v:formatAmount(selected) },
                 { l:'Gateway',  v:selected.gateway || '—' },
                 { l:'Coupon',   v:selected.coupon || '—' },
@@ -831,6 +854,8 @@ function Orders() {
                 ))}
               </div>
 
+              <FulfillmentPanel order={selected} onUpdated={(o:any)=>{ setSelected(o); load() }} />
+
               <RefundPanel
                 endpoint={`${API}/orders/${selected.id}`}
                 paid={selected.currency==='USD' ? 0 : (selected.totalINR||0)}
@@ -848,7 +873,7 @@ function Orders() {
             </div>
             <div className="modal-footer">
               <button className="btn" onClick={()=>setSelected(null)}>Close</button>
-              {selected.status==='paid' && (
+              {['paid','packed','returned'].includes(selected.status) && (
                 <button className="btn btn-danger" onClick={()=>cancelOrder(selected)} disabled={cancelling}>
                   {cancelling ? 'Cancelling…' : 'Cancel Order'}
                 </button>
