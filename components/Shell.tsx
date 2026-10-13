@@ -3,12 +3,13 @@ import { useRouter } from 'next/router'
 import Link from 'next/link'
 import {
   ShoppingBag, FileText, Inbox, Settings, LayoutDashboard,
-  LogOut, ExternalLink, Users, Calendar, Briefcase, Megaphone, GalleryHorizontal, Layers, Star
+  LogOut, ExternalLink, Users, Calendar, Briefcase, Megaphone, GalleryHorizontal, Layers, Star, BarChart3
 } from 'lucide-react'
 import { isAuthed, clearSession } from '@/lib/auth'
 
 const NAV = [
   { href: '/admin',               icon: LayoutDashboard,   label: 'Dashboard' },
+  { href: '/admin/analytics',     icon: BarChart3,         label: 'Analytics' },
   { href: '/admin/shop',          icon: ShoppingBag,       label: 'Shop' },
   { href: '/admin/agents',        icon: Users,             label: 'Agents' },
   { href: '/admin/services',      icon: Briefcase,         label: 'Services' },
