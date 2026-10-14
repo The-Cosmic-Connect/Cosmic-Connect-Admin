@@ -1,13 +1,14 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/router'
 import Shell from '@/components/Shell'
-import { Plus, Pencil, Trash2, X, Upload, Image as ImageIcon } from 'lucide-react'
+import { Plus, Trash2, X, Upload } from 'lucide-react'
 import { fetchAllProducts, getCachedProducts, invalidateProductsCache,
          upsertProductInCache, removeProductFromCache } from '@/lib/fetchProducts'
 import { authedFetch } from '@/lib/auth'
 import RefundPanel from '@/components/RefundPanel'
 import FulfillmentPanel, { STATUS_LABEL, STATUS_COLOR } from '@/components/FulfillmentPanel'
 import { uploadImage } from '@/lib/uploadImage'
+import ProductList from '@/components/products/ProductList'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -305,8 +306,6 @@ function Products() {
   const [eid, setEid]   = useState<string | null>(null)
   const [err, setErr]   = useState('')
   const [sav, setSav]   = useState(false)
-  const [filter, setFilter] = useState('')
-
   const load = useCallback((opts: { force?: boolean } = {}) => {
     const cached = getCachedProducts()
     if (!opts.force && cached) {
@@ -372,7 +371,7 @@ function Products() {
       inStock:    !!form.inStock,
       featured:   !!form.featured,
       bestseller: !!form.bestseller,
-      published:  true,
+      published:  eid ? form.published !== false : true,
     }
 
     try {
@@ -418,68 +417,21 @@ function Products() {
 
   const f = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }))
 
-  const filtered = filter
-    ? list.filter((p) =>
-        (p.name || '').toLowerCase().includes(filter.toLowerCase()) ||
-        (p.slug || '').toLowerCase().includes(filter.toLowerCase()))
-    : list
+  // Silent refetch after bulk edits / imports / undo (no "Loading…" flash).
+  const refresh = useCallback(() => {
+    invalidateProductsCache()
+    fetchAllProducts({ force: true }).then((items) => setList(items)).catch(() => {})
+  }, [])
+  function localUpdate(patch: Record<string, Record<string, any>>) {
+    setList((prev) => prev.map((p) => (patch[p.id] ? { ...p, ...patch[p.id] } : p)))
+  }
 
   return (
     <div>
-      <div className="ph">
-        <div>
-          <h1>Products</h1>
-          <p>{busy ? 'Loading…' : `${list.length} items`}{filter && !busy ? ` · ${filtered.length} match` : ''}</p>
-        </div>
-        <div className="flex gap2" style={{ alignItems: 'center' }}>
-          <input value={filter} onChange={(e) => setFilter(e.target.value)}
-            placeholder="Search by name or slug…"
-            style={{ padding: '6px 10px', fontSize: 13, border: '1px solid #ddd', borderRadius: 4, width: 220 }} />
-          <button className="btn btn-p" onClick={openNew}><Plus size={13} /> Add Product</button>
-        </div>
-      </div>
-
-      <BestsellerModeSwitch />
-
-      <div className="card">
-        {busy ? <div className="empty">Loading…</div>
-          : filtered.length === 0 ? <div className="empty">{filter ? 'No products match that search.' : <>No products yet. <button className="btn btn-p btn-sm mt2" onClick={openNew}>Add one</button></>}</div>
-          : <table>
-              <thead>
-                <tr>
-                  <th></th><th>Name</th><th>Categories</th><th>₹ Price</th><th>Stock</th><th>Status</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => (
-                  <tr key={p.id}>
-                    <td>
-                      {p.images?.[0]
-                        ? <img src={p.images[0]} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 3 }} />
-                        : <div style={{ width: 36, height: 36, background: '#f0f0f0', borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb' }}><ImageIcon size={14} /></div>}
-                    </td>
-                    <td><span className="trunc">{p.name}</span></td>
-                    <td>
-                      {(p.collections || []).slice(0, 2).map((c: string) =>
-                        <span key={c} className="tag" style={{ marginRight: 4 }}>{c}</span>)}
-                      {(p.collections || []).length > 2 &&
-                        <span className="muted" style={{ fontSize: 11 }}>+{p.collections.length - 2}</span>}
-                    </td>
-                    <td>₹{p.priceINR?.toLocaleString()}</td>
-                    <td>{p.stock ?? '—'}</td>
-                    <td><span className={`b ${p.inStock ? 'b-g' : 'b-r'}`}>{p.inStock ? 'In Stock' : 'Out'}</span></td>
-                    <td>
-                      <div className="flex gap2">
-                        <button className="btn btn-s btn-sm" onClick={() => openEdit(p)}><Pencil size={11} /></button>
-                        <button className="btn btn-d btn-sm" onClick={() => del(p.id)}><Trash2 size={11} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-        }
-      </div>
+      <ProductList list={list} busy={busy} categories={COLLECTIONS} onAdd={openNew} onEdit={openEdit} onDelete={del}
+        onChanged={refresh} onLocalUpdate={localUpdate}>
+        <BestsellerModeSwitch />
+      </ProductList>
 
       {modal && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(false)}>
